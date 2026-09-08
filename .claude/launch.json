@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "livespot-web",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "cd livespot_app && flutter run -d web-server --web-port 5173 --web-hostname 127.0.0.1"],
+      "port": 5173
+    }
+  ]
+}

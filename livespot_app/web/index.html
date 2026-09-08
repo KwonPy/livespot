@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="A new Flutter project.">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="livespot_app">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>livespot_app</title>
+  <link rel="manifest" href="manifest.json">
+
+  <!-- MapTiler SDK JS (WebGL 기반, Leaflet/iframe 미사용) -->
+  <link rel="stylesheet" href="https://cdn.maptiler.com/maptiler-sdk-js/latest/maptiler-sdk.css" />
+  <script src="https://cdn.maptiler.com/maptiler-sdk-js/latest/maptiler-sdk.umd.min.js"></script>
+  <script>
+    // ─────────────────────────────────────────────────────────────
+    // MapTiler 설정 - 실제 값 입력 필요
+    //   apiKey : MapTiler Cloud > Account > API Keys
+    //   style  : 스타일 ID(예: "streets-v2") 또는 전체 style.json URL
+    // ─────────────────────────────────────────────────────────────
+    window.MAPTILER_CONFIG = {
+      apiKey: 'SQrfMt5hGvcAVf4rjawN',
+      style: 'https://api.maptiler.com/maps/019ffa48-24b4-7c8b-af84-8758091d2269/style.json?key=SQrfMt5hGvcAVf4rjawN',
+    };
+
+    var spotMap = null;
+    // id -> { marker, el, sig }  (id 기준 diffing으로 마커 중복 생성 방지)
+    var spotMarkers = {};
+
+    function showMapError(container, message) {
+      if (!container) return;
+      container.innerHTML = '<div style="color:red; padding:20px; text-align:center; background:white; height:100%; display:flex; align-items:center; justify-content:center;">' + message + '</div>';
+    }
+
+    // 지도 초기화 (Flutter에서 호출). 이미 생성됐으면 재생성하지 않음.
+    function initSpotMap(container, lat, lng) {
+      if (spotMap) return;
+
+      if (!container) {
+        console.error('MapTiler Error: container is null');
+        return;
+      }
+
+      if (typeof maptilersdk === 'undefined') {
+        showMapError(container, 'MapTiler SDK 로드 실패!<br>네트워크 연결을 확인해주세요.');
+        return;
+      }
+
+      var cfg = window.MAPTILER_CONFIG || {};
+      if (!cfg.apiKey || !cfg.style) {
+        showMapError(container, 'MapTiler 설정이 비어 있습니다.<br>web/index.html의 MAPTILER_CONFIG에<br>apiKey와 style을 입력해주세요.');
+        return;
+      }
+
+      try {
+        maptilersdk.config.apiKey = cfg.apiKey;
+
+        spotMap = new maptilersdk.Map({
+          container: container,
+          style: cfg.style,
+          center: [lng, lat], // MapTiler/GeoJSON은 [경도, 위도] 순서
+          zoom: 13,
+          navigationControl: false,
+          geolocateControl: false,
+        });
+      } catch (e) {
+        spotMap = null;
+        showMapError(container, 'MapTiler 초기화 에러:<br>' + e.message);
+      }
+    }
+
+    // 마커 DOM 내용 렌더링 (신규 생성 / 내용 갱신 공용)
+    //
+    // 마커 색상은 방문 집중률 "예측"(기능 9, 한국관광공사) 기준이다 — 현장 제보 실측과는
+    // 다른 지표라 별도 어휘(green/yellow/red/unknown)로 넘어온다.
+    //
+    // 집중률 데이터셋은 주요 관광지 위주라 TourAPI가 주는 관광지의 일부만 값을 갖는다
+    // (축제·상점·조형물 등은 애초에 대상이 아님). 값 없는 마커를 초록으로 칠하면
+    // "여유롭다"는 거짓 신호가 되므로, 테두리 없이(색 없음) 나머지 스타일은 동일하게 둔다
+    // — 흐리게 처리하면 지도에서 존재감 자체가 사라져 탐색 경험이 나빠지기 때문이다.
+    function renderMarkerContent(el, spot) {
+      var level = spot.congestionLevel;
+      var color = level === 'green' ? '#4CAF50' :
+                  level === 'yellow' ? '#FF9800' :
+                  level === 'red' ? '#F44336' : null;
+
+      el.style.padding = '4px 8px';
+      el.style.backgroundColor = 'white';
+      el.style.border = color ? ('2px solid ' + color) : 'none';
+      el.style.borderRadius = '8px';
+      el.style.boxShadow = '0 2px 6px rgba(0,0,0,0.3)';
+      el.style.fontSize = '12px';
+      el.style.fontWeight = 'bold';
+      el.style.color = '#212121';
+      el.style.cursor = 'pointer';
+
+      var title = spot.title || '';
+      var shortTitle = title.length > 6 ? title.substring(0, 6) + '..' : title;
+
+      // LIVE 펄스 표시는 지도 마커에서는 쓰지 않는다 — 마커 색상은 집중률 "예측"이고,
+      // "최근 제보 여부(LIVE)"는 성격이 다른 실측 신호라 마커를 눌러 여는 카드에서만 보여준다.
+      var innerHtml = '<div style="display:flex; align-items:center;">';
+      innerHtml += '<span>' + shortTitle + '</span>';
+      if (spot.onsiteCount > 0) {
+        innerHtml += '<span style="margin-left:4px; font-size:10px; color:#757575;">' + spot.onsiteCount + '명</span>';
+      }
+      innerHtml += '</div>';
+
+      el.innerHTML = innerHtml;
+    }
+
+    // 마커 갱신 - id 기준 diffing (변경 없는 마커는 건드리지 않음)
+    function updateSpotMarkers(spotsJson) {
+      if (!spotMap) return;
+
+      var spots;
+      try {
+        spots = JSON.parse(spotsJson);
+      } catch (e) {
+        console.error('마커 데이터 파싱 실패:', e);
+        return;
+      }
+
+      var seen = {};
+
+      spots.forEach(function (spot) {
+        if (spot.lat == null || spot.lng == null) return;
+
+        var id = String(spot.id);
+        seen[id] = true;
+
+        // 값이 하나라도 바뀌었는지 판별하는 시그니처
+        var sig = [spot.lat, spot.lng, spot.title, spot.congestionLevel, spot.onsiteCount].join('|');
+        var existing = spotMarkers[id];
+
+        if (existing) {
+          if (existing.sig === sig) return; // 변경 없음 → 재생성/재렌더 안 함
+          existing.marker.setLngLat([spot.lng, spot.lat]);
+          renderMarkerContent(existing.el, spot);
+          existing.sig = sig;
+          return;
+        }
+
+        var el = document.createElement('div');
+        renderMarkerContent(el, spot);
+        el.addEventListener('click', function () {
+          if (window.onSpotMarkerClick) {
+            window.onSpotMarkerClick(id);
+          }
+        });
+
+        var marker = new maptilersdk.Marker({ element: el, anchor: 'bottom' })
+          .setLngLat([spot.lng, spot.lat])
+          .addTo(spotMap);
+
+        spotMarkers[id] = { marker: marker, el: el, sig: sig };
+      });
+
+      // 더 이상 존재하지 않는 마커 제거
+      Object.keys(spotMarkers).forEach(function (id) {
+        if (!seen[id]) {
+          spotMarkers[id].marker.remove();
+          delete spotMarkers[id];
+        }
+      });
+    }
+
+    // 내 위치로 이동
+    function panToSpotMap(lat, lng) {
+      if (!spotMap) return;
+      spotMap.easeTo({ center: [lng, lat] });
+    }
+
+    // 지도 탭이 숨겨져 있는 동안(크기 0) 초기화됐던 경우를 대비해
+    // 탭이 다시 보일 때 컨테이너 크기를 다시 계산합니다.
+    function relayoutSpotMap(lat, lng) {
+      if (!spotMap) return;
+      spotMap.resize();
+      if (lat != null && lng != null) {
+        spotMap.setCenter([lng, lat]);
+      }
+    }
+
+    // 화면 종료 시 지도/마커/이벤트 정리
+    function disposeSpotMap() {
+      Object.keys(spotMarkers).forEach(function (id) {
+        spotMarkers[id].marker.remove();
+      });
+      spotMarkers = {};
+
+      if (spotMap) {
+        spotMap.remove();
+        spotMap = null;
+      }
+    }
+  </script>
+</head>
+<body>
+  <!--
+    You can customize the "flutter_bootstrap.js" script.
+    This is useful to provide a custom configuration to the Flutter loader
+    or to give the user feedback during the initialization process.
+
+    For more details:
+    * https://docs.flutter.dev/platform-integration/web/initialization
+  -->
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

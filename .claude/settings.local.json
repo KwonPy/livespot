@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter --version)",
+      "Bash(flutter analyze *)",
+      "PowerShell(flutter devices *)",
+      "Bash(flutter run *)",
+      "Bash(./venv/Scripts/python.exe -m uvicorn app.main:app --reload --port 8000)",
+      "PowerShell(Get-NetTCPConnection *)",
+      "PowerShell(Get-Process *)",
+      "PowerShell(Stop-Process *)",
+      "Bash(./venv/Scripts/python.exe -m uvicorn app.main:app --reload --port 8000 --host 127.0.0.1)",
+      "Bash(curl -s -m 2 http://127.0.0.1:8000/health)",
+      "Bash(python .claude/skills/livespot-contract/scripts/contract_diff.py *)",
+      "Bash(./venv/Scripts/python.exe .claude/skills/livespot-contract/scripts/contract_diff.py *)",
+      "Bash(curl -s http://127.0.0.1:8000/api/*)",
+      "Bash(curl -s -m 20 http://127.0.0.1:8000/api/*)",
+      "Bash(./venv/Scripts/python.exe -m alembic revision --autogenerate *)",
+      "Bash(./venv/Scripts/python.exe -m alembic upgrade head)",
+      "Bash(./venv/Scripts/python.exe -m alembic current)",
+      "Bash(./venv/Scripts/python.exe -m alembic history *)",
+      "Bash(cd livespot_app && flutter analyze)"
+    ]
+  }
+}

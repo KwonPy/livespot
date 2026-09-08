@@ -1,0 +1,11 @@
+# backend
+livespot_backend/.env
+livespot_backend/venv/
+livespot_backend/__pycache__/
+livespot_backend/**/__pycache__/
+livespot_backend/*.db
+livespot_backend/diag1.txt
+
+# OS
+.DS_Store
+Thumbs.db

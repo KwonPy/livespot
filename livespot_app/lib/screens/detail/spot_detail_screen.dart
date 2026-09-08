@@ -1,0 +1,915 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../models/spot.dart';
+import '../../models/report.dart';
+import '../../models/live_status.dart';
+import '../../models/congestion_info.dart';
+import '../../models/weather.dart';
+import '../../models/briefing.dart';
+import '../../config/theme.dart';
+import '../../config/constants.dart';
+import '../../utils/image_url.dart';
+import '../../services/mock_data_service.dart';
+import '../../services/api_service.dart';
+import '../../services/location_service.dart';
+import '../../utils/formatters.dart';
+import '../../widgets/gps_verified_badge.dart';
+import '../../widgets/quick_report_modal.dart';
+import '../../widgets/crowdedness_badge.dart';
+import '../../widgets/weather_badge.dart';
+import '../../widgets/qa_section.dart';
+
+class SpotDetailScreen extends ConsumerStatefulWidget {
+  final Spot spot;
+
+  const SpotDetailScreen({super.key, required this.spot});
+
+  @override
+  ConsumerState<SpotDetailScreen> createState() => _SpotDetailScreenState();
+}
+
+class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _typingController;
+  // AI 브리핑(기능 10). _briefing이 채워진 뒤에야 타이핑이 시작된다 — 표시할 문장을
+  // 서버에서 받기 전에는 애니메이션을 돌릴 대상 자체가 없다.
+  Briefing? _briefing;
+  bool _briefingLoading = true;
+  String _briefingFullText = ''; // 타이핑 대상 원문
+  String _displayedBriefing = ''; // 지금까지 찍힌 부분
+  int _charIndex = 0;
+  LiveStatus? _liveStatus;
+  bool _liveStatusLoading = true;
+  CongestionInfo? _congestionInfo; // 방문 집중률 "예측" (기능 9)
+  bool _congestionLoading = true;
+  WeatherInfo? _weather; // 실시간 날씨. null = 로딩 중이거나 조회 자체가 실패한 상태
+
+  Map<String, dynamic>? _spotDetail;
+  Map<String, dynamic>? _spotIntro;
+  bool _overviewExpanded = false; // "관광지 소개" 5줄 초과 시 더보기/접기 토글
+
+  List<Report> _reports = [];
+  bool _reportsLoading = true;
+
+  final LocationService _locationService = LocationService();
+  bool? _pushEnabled; // null = 로딩 전
+  bool? _bookmarked; // null = 로딩 전 → 버튼 비활성
+  bool _verifyingOnsite = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _typingController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 50),
+    )..addListener(_onTypingTick);
+
+    _fetchExtraInfo();
+    _fetchReports();
+    _fetchPushSetting();
+    _fetchBookmarkState();
+    _fetchLiveStatus();
+    _fetchCongestion();
+    _fetchWeather();
+    _fetchBriefing();
+  }
+
+  Future<void> _fetchExtraInfo() async {
+    final api = ApiService();
+    final detail = await api.fetchSpotDetail(widget.spot.contentId);
+    final intro = await api.fetchSpotIntro(widget.spot.contentId, widget.spot.category ?? '12');
+    if (mounted) {
+      setState(() {
+        _spotDetail = detail;
+        _spotIntro = intro;
+      });
+    }
+  }
+
+  // LIVE 상태창(기능 5). 매번 실시간 계산된 값이라 방금 올린 제보가 바로 반영된다.
+  Future<void> _fetchLiveStatus() async {
+    if (mounted) setState(() => _liveStatusLoading = true);
+    try {
+      final status = await ApiService().fetchLiveStatus(widget.spot.contentId);
+      if (mounted) setState(() => _liveStatus = status);
+    } catch (_) {
+      if (mounted) setState(() => _liveStatus = null);
+    } finally {
+      if (mounted) setState(() => _liveStatusLoading = false);
+    }
+  }
+
+  // 방문 집중률 "예측"(기능 9, 한국관광공사). 아래 "오늘의 현장 상황"(실측, reports 기반)과는
+  // 성격이 다른 지표라 절대 하나로 합치지 않고 별도 블록으로 나란히 보여준다.
+  Future<void> _fetchCongestion() async {
+    if (mounted) setState(() => _congestionLoading = true);
+    try {
+      final info = await ApiService().fetchCongestion(widget.spot.contentId);
+      if (mounted) setState(() => _congestionInfo = info);
+    } catch (_) {
+      if (mounted) setState(() => _congestionInfo = null);
+    } finally {
+      if (mounted) setState(() => _congestionLoading = false);
+    }
+  }
+
+  // AI 브리핑(기능 10). _fetchCongestion과 같은 패턴 — 로딩 플래그 + try/catch + finally.
+  //
+  // 서버는 관광지가 없을 때(404)를 빼면 항상 200을 준다. Gemini 실패·타임아웃·재료 부족은
+  // 전부 200 + source(TEMPLATE/NONE)로 오므로 여기 catch에 걸리는 건 네트워크 단절이나
+  // 404뿐이다. 그때는 _briefing이 null로 남아 섹션 자체가 사라진다 — 에러 문구를 띄우는
+  // 대신 못 그리면 숨기는 쪽이 정직하다(날씨 배지와 같은 정책).
+  Future<void> _fetchBriefing() async {
+    if (mounted) setState(() => _briefingLoading = true);
+    try {
+      final briefing = await ApiService().fetchBriefing(widget.spot.contentId);
+      if (mounted) {
+        setState(() => _briefing = briefing);
+        // 타이핑은 "500ms 후 무조건"이 아니라 응답이 실제로 도착한 뒤 시작한다.
+        // 캐시 미스 시 생성에 수 초가 걸려서, 예전 트리거는 빈 화면에 커서만 돌았다.
+        _startBriefingTyping(briefing.fullBriefing);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _briefing = null);
+    } finally {
+      if (mounted) setState(() => _briefingLoading = false);
+    }
+  }
+
+  void _startBriefingTyping(String text) {
+    _briefingFullText = text;
+    _charIndex = 0;
+    _displayedBriefing = '';
+    _typingController.repeat();
+  }
+
+  // 실시간 날씨. 좌표는 보내지 않는다 — 서버가 content_id로 자체 조회하므로
+  // HOT SPOTS 진입(widget.spot.latitude == null)에서도 그대로 동작한다.
+  //
+  // 날씨는 페이지의 부수 정보라 실패를 조용히 삼킨다(_fetchCongestion과 같은 패턴).
+  // 다이얼로그·SnackBar를 띄우지 않고 배지 영역만 사라지며, 나머지 섹션은 정상 렌더링된다.
+  // 조회 실패(404/네트워크)는 여기서 null이 되고, Open-Meteo 실패는 200 + available:false로
+  // 와서 배지가 '정보 없음' fallback으로 그려진다 — 두 상태가 화면에서 구분된다.
+  Future<void> _fetchWeather() async {
+    try {
+      final weather = await ApiService().fetchWeather(widget.spot.contentId);
+      if (mounted) setState(() => _weather = weather);
+    } catch (_) {
+      if (mounted) setState(() => _weather = null);
+    }
+  }
+
+  // 조회 실패해도 화면은 살아있어야 하므로(설계 원칙 3) 빈 목록으로 조용히 대체한다.
+  Future<void> _fetchReports() async {
+    if (mounted) setState(() => _reportsLoading = true);
+    try {
+      final reports = await ApiService().fetchReports(widget.spot.contentId);
+      if (mounted) setState(() => _reports = reports);
+    } catch (_) {
+      if (mounted) setState(() => _reports = []);
+    } finally {
+      if (mounted) setState(() => _reportsLoading = false);
+    }
+  }
+
+  // 관광지별 자동 제보 유도 알림(기능 2) on/off 상태. 실패해도 화면은 살아있어야 하므로
+  // 조회 실패 시 OFF로 간주한다.
+  Future<void> _fetchPushSetting() async {
+    try {
+      final setting = await ApiService().fetchNotificationSetting(widget.spot.contentId);
+      if (mounted) setState(() => _pushEnabled = setting.pushEnabled);
+    } catch (_) {
+      if (mounted) setState(() => _pushEnabled = false);
+    }
+  }
+
+  Future<void> _togglePushSetting() async {
+    final next = !(_pushEnabled ?? false);
+    setState(() => _pushEnabled = next); // 낙관적 반영
+    try {
+      await ApiService().setNotificationSetting(widget.spot.contentId, next);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(next ? '이 관광지 근처에 오면 제보 알림을 보내드릴게요' : '제보 알림을 껐어요', style: const TextStyle(fontFamily: 'Pretendard'))),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _pushEnabled = !next); // 실패 시 롤백
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('알림 설정을 저장하지 못했어요. 다시 시도해주세요.', style: TextStyle(fontFamily: 'Pretendard'))),
+      );
+    }
+  }
+
+  // 북마크 상태(기능 12). 단건 조회 엔드포인트는 없으므로 내 북마크 목록을 받아
+  // 이 관광지의 content_id가 들어 있는지로 판정한다(정책 P-B11).
+  // 조회 실패 시 알림 설정과 같은 방침으로 "북마크 안 됨"으로 간주한다 —
+  // 화면은 살아있어야 하고, 잘못 눌러도 서버가 멱등이라 데이터가 깨지지 않는다.
+  Future<void> _fetchBookmarkState() async {
+    try {
+      final bookmarks = await ApiService().fetchBookmarks();
+      if (mounted) {
+        setState(() => _bookmarked =
+            bookmarks.any((b) => b.contentId == widget.spot.contentId));
+      }
+    } catch (_) {
+      if (mounted) setState(() => _bookmarked = false);
+    }
+  }
+
+  // _togglePushSetting과 같은 형태 — 낙관적 반영 → 실패 시 롤백 + SnackBar.
+  Future<void> _toggleBookmark() async {
+    final next = !(_bookmarked ?? false);
+    setState(() => _bookmarked = next); // 낙관적 반영
+    try {
+      if (next) {
+        await ApiService().addBookmark(widget.spot.contentId);
+      } else {
+        await ApiService().removeBookmark(widget.spot.contentId);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(next ? '북마크에 저장했어요' : '북마크를 해제했어요', style: const TextStyle(fontFamily: 'Pretendard'))),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _bookmarked = !next); // 실패 시 롤백
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('북마크를 저장하지 못했어요. 다시 시도해주세요.', style: TextStyle(fontFamily: 'Pretendard'))),
+      );
+    }
+  }
+
+  // 기능 4: 능동적 현장 인증. 자동 알림 설정과 무관하게, 이 화면에서 고른
+  // widget.spot.contentId 기준으로만 거리를 검증한다.
+  Future<void> _attemptOnsiteVerification() async {
+    setState(() => _verifyingOnsite = true);
+    try {
+      final position = await _locationService.getCurrentPosition();
+      final result = await ApiService().verifyLocation(
+        widget.spot.contentId,
+        position.latitude,
+        position.longitude,
+      );
+      if (!mounted) return;
+      if (result.verified) {
+        _showReportModal(context);
+      } else {
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('현장 인증 실패', style: TextStyle(fontFamily: 'Pretendard', fontWeight: FontWeight.bold)),
+            content: Text(result.message, style: const TextStyle(fontFamily: 'Pretendard')),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('확인', style: TextStyle(fontFamily: 'Pretendard'))),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('위치를 확인하지 못했어요: ${e.toString().replaceFirst('Exception: ', '')}', style: const TextStyle(fontFamily: 'Pretendard'))),
+      );
+    } finally {
+      if (mounted) setState(() => _verifyingOnsite = false);
+    }
+  }
+
+  void _onTypingTick() {
+    if (_charIndex < _briefingFullText.length) {
+      setState(() {
+        _charIndex++;
+        _displayedBriefing = _briefingFullText.substring(0, _charIndex);
+      });
+    } else {
+      _typingController.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _typingController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: CustomScrollView(
+        slivers: [
+          _buildSliverAppBar(),
+          SliverToBoxAdapter(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildLiveStatusSection(),
+                const Divider(height: 1),
+                _buildCongestionSection(),
+                const Divider(height: 1),
+                _buildRealtimeDashboard(),
+                const Divider(height: 1),
+                _buildAiBriefingSection(),
+                const Divider(height: 1),
+                _buildOverviewSection(),
+                const Divider(height: 1),
+                _buildBasicInfoSection(),
+                const Divider(height: 1),
+                QaSection(spotContentId: widget.spot.contentId, spotName: widget.spot.title),
+                const Divider(height: 1),
+                _buildReviewSection(),
+                const SizedBox(height: 100),
+              ],
+            ),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _verifyingOnsite ? null : _attemptOnsiteVerification,
+        backgroundColor: LiveSpotTheme.primaryColor,
+        icon: _verifyingOnsite
+            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white))
+            : const Icon(Icons.bolt, color: Colors.white),
+        label: const Text('현장 제보', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      ),
+    );
+  }
+
+  // ── SliverAppBar ──
+  Widget _buildSliverAppBar() {
+    return SliverAppBar(
+      expandedHeight: 280,
+      pinned: true,
+      stretch: true,
+      backgroundColor: LiveSpotTheme.primaryColor,
+      leading: IconButton(
+        icon: const CircleAvatar(backgroundColor: Colors.black26, child: Icon(Icons.arrow_back, color: Colors.white, size: 20)),
+        onPressed: () => Navigator.pop(context),
+      ),
+      actions: [
+        IconButton(
+          tooltip: _pushEnabled == true ? '제보 알림 끄기' : '제보 알림 켜기',
+          icon: CircleAvatar(
+            backgroundColor: Colors.black26,
+            child: Icon(
+              _pushEnabled == true ? Icons.notifications_active : Icons.notifications_none,
+              color: _pushEnabled == true ? Colors.amberAccent : Colors.white,
+              size: 20,
+            ),
+          ),
+          onPressed: _pushEnabled == null ? null : _togglePushSetting,
+        ),
+        IconButton(
+          tooltip: _bookmarked == true ? '북마크 해제' : '북마크에 저장',
+          icon: CircleAvatar(
+            backgroundColor: Colors.black26,
+            child: Icon(
+              _bookmarked == true ? Icons.bookmark : Icons.bookmark_border,
+              color: _bookmarked == true ? Colors.amberAccent : Colors.white,
+              size: 20,
+            ),
+          ),
+          // 상태를 아직 모르는 동안(_bookmarked == null)은 누를 수 없다 —
+          // 알림 버튼이 _pushEnabled == null에 대해 하는 것과 같다.
+          onPressed: _bookmarked == null ? null : _toggleBookmark,
+        ),
+      ],
+      flexibleSpace: FlexibleSpaceBar(
+        title: Text(
+          widget.spot.title,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16, shadows: [Shadow(color: Colors.black45, blurRadius: 8)]),
+        ),
+        background: Stack(
+          fit: StackFit.expand,
+          children: [
+            // resolveImageUrl은 null·빈 문자열을 모두 null로 접어주므로 여기서 한 번만 판정한다.
+            resolveImageUrl(widget.spot.imageUrl) != null
+                ? Image.network(resolveImageUrl(widget.spot.imageUrl)!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _gradientPlaceholder())
+                : _gradientPlaceholder(),
+            const DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.transparent, Colors.black54]))),
+            // 날씨 배지는 헤더 이미지 위, 액션 아이콘 줄(뒤로가기·알림·북마크) 바로 아래
+            // 우측 상단에 고정한다. 관광지명과 같은 Row에 두던 예전 배치는 폐기했다 —
+            // 접힌 상태에서 액션 아이콘 2개와 폭을 다투기 때문이다.
+            //
+            // background에 있으므로 헤더가 접히면 이미지와 함께 배지도 사라진다. 이는
+            // 의도된 동작이다: 날씨는 부수 정보이고, 좁아진 헤더는 제목과 동작 버튼에 양보한다.
+            //
+            // 로딩 중이거나 조회 실패(_weather == null)면 배지 자리 자체가 생기지 않는다 —
+            // 에러 문구·SnackBar를 띄우지 않는다. available:false는 회색 fallback pill로 그려진다.
+            if (_weather != null)
+              Positioned(
+                top: MediaQuery.of(context).padding.top + kToolbarHeight + 8,
+                right: 16,
+                child: WeatherBadge(weather: _weather!, onImage: true, compact: true),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _gradientPlaceholder() => Container(
+        decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF1E88E5), Color(0xFF1565C0)])),
+        child: const Center(child: Icon(Icons.landscape, color: Colors.white38, size: 80)),
+      );
+
+  // ── 🔴 LIVE 상태창 ──
+  Widget _buildLiveStatusSection() {
+    final isLive = _liveStatus?.isLive ?? false;
+    final reportCount = _liveStatus?.recentReportCount ?? 0;
+    // "최근 활동"은 실제 제보(reports) 상위 3건을 그대로 재사용한다 — 질문/답변(기능 7)은
+    // 아직 없으므로 REPORT 종류만 존재한다. presence/questions가 없어 "현장 인원"·"질문"
+    // 통계는 숨기고, 정직하게 확인 가능한 "제보" 건수만 보여준다.
+    final recentActivities = _reports.take(3).toList();
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      color: Colors.white,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // LIVE 헤더
+          Row(
+            children: [
+              if (isLive) ...[
+                Container(width: 10, height: 10, decoration: const BoxDecoration(color: Color(0xFFFF1744), shape: BoxShape.circle)),
+                const SizedBox(width: 6),
+                const Text('LIVE', style: TextStyle(color: Color(0xFFFF1744), fontWeight: FontWeight.w900, fontSize: 14)),
+              ] else
+                Text('오프라인', style: TextStyle(color: Colors.grey[400], fontWeight: FontWeight.w600, fontSize: 14)),
+              const Spacer(),
+              Text(
+                _liveStatusLoading ? '불러오는 중...' : '최근 ${AppConstants.liveWindowHours}시간 기준',
+                style: TextStyle(fontSize: 11, color: Colors.grey[400]),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // 통계 행 — 현장 인원/질문 수는 아직 실제 데이터가 없어 표시하지 않는다.
+          Row(
+            children: [
+              _buildLiveStat(Icons.edit_note, '제보', '$reportCount건', Colors.green),
+            ],
+          ),
+          if (recentActivities.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            const Divider(height: 1),
+            const SizedBox(height: 8),
+            Text('최근 활동', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[600])),
+            const SizedBox(height: 6),
+            ...recentActivities.map((r) {
+              final summary = '제보: 혼잡도 ${MockDataService.crowdednessLabel(r.crowdednessLevel)}, 대기 ${MockDataService.waitingTimeLabel(r.waitingTime)}';
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.edit, size: 14, color: Colors.green),
+                    const SizedBox(width: 6),
+                    Expanded(child: Text(summary, style: TextStyle(fontSize: 12, color: Colors.grey[700]), overflow: TextOverflow.ellipsis)),
+                    Text(Formatters.timeAgo(r.createdAt), style: TextStyle(fontSize: 10, color: Colors.grey[400])),
+                  ],
+                ),
+              );
+            }),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLiveStat(IconData icon, String label, String value, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(color: color.withOpacity(0.06), borderRadius: BorderRadius.circular(10)),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(height: 4),
+            Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color)),
+            Text(label, style: TextStyle(fontSize: 10, color: Colors.grey[500])),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── 📊 방문 집중률 예측 (기능 9, 한국관광공사 TatsCnctrRateService) ──
+  // 과거 방문 패턴 기반 "예측" 값이다. 실시간 현재 상황이 아니며, 아래 "오늘의 현장
+  // 상황"(실제 제보)과 다를 수 있다는 것 자체가 LiveSpot의 차별점이므로 있는 그대로 보여준다.
+  Widget _buildCongestionSection() {
+    final info = _congestionInfo;
+    final rate = info?.congestionRate;
+    final hasRate = rate != null;
+    final note = _congestionVsActualNote;
+
+    // 집중률 데이터셋은 관광지명으로만 데이터를 구분해서, 서버가 근처 상위 관광지에
+    // 매칭시켜 주는 경우가 있다('덕수궁 대한문' -> '덕수궁'). 그럴 땐 무엇을 기준으로
+    // 한 값인지 밝힌다 — 다른 관광지의 값을 이 관광지 값인 척하지 않는다.
+    final matchedName = info?.spotName;
+    final matchedElsewhere =
+        hasRate && matchedName != null && matchedName != widget.spot.title;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      color: Colors.white,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('📊 방문 집중률 예측', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[600])),
+              const Spacer(),
+              Text(
+                _congestionLoading ? '불러오는 중...' : '한국관광공사 예측',
+                style: TextStyle(fontSize: 11, color: Colors.grey[400]),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (hasRate) ...[
+            Row(
+              children: [
+                Text('${rate.toStringAsFixed(0)}%',
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                const SizedBox(width: 8),
+                CrowdednessBadge(level: info!.level),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text('과거 방문 패턴으로 예측한 오늘의 값이에요. 지금 이 순간의 실측이 아닙니다.',
+                style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+            if (matchedElsewhere) ...[
+              const SizedBox(height: 4),
+              Text("'$matchedName' 기준 예측값이에요.",
+                  style: TextStyle(fontSize: 11, color: Colors.orange[700])),
+            ],
+          ] else if (!_congestionLoading) ...[
+            Text('예측 대상 아님', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.grey[500])),
+            const SizedBox(height: 4),
+            Text('집중률 예측은 주요 관광지를 대상으로 제공돼요.',
+                style: TextStyle(fontSize: 12, color: Colors.grey[400], height: 1.4)),
+          ],
+          if (note != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(color: Colors.blue[50], borderRadius: BorderRadius.circular(8)),
+              child: Text(note, style: TextStyle(fontSize: 12, color: Colors.blue[800], height: 1.4)),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 예측 등급과 실측(오늘의 현장 상황) 등급이 둘 다 있고 서로 다를 때만 안내문을 만든다.
+  /// 같으면 굳이 중복으로 말하지 않는다.
+  String? get _congestionVsActualNote {
+    final predictedLevel = _congestionInfo?.level; // green / yellow / red
+    final actualCode = _liveStatus?.currentCrowdedness; // EASY / NORMAL / BUSY
+    if (predictedLevel == null || predictedLevel == 'unknown' || actualCode == null) return null;
+
+    const actualToLevel = {'EASY': 'green', 'NORMAL': 'yellow', 'BUSY': 'red'};
+    final actualLevel = actualToLevel[actualCode];
+    if (actualLevel == null || actualLevel == predictedLevel) return null;
+
+    const predLabel = {'green': '여유', 'yellow': '보통', 'red': '높음'};
+    const actLabel = {'green': '여유', 'yellow': '보통', 'red': '혼잡'};
+    return '예상 방문 집중도는 ${predLabel[predictedLevel]} 수준이지만, 현재 현장 제보는 ${actLabel[actualLevel]} 상태입니다.';
+  }
+
+  // ── 실시간 대시보드 ──
+  // 혼잡도/대기시간/주차는 "당일(오늘, KST 기준)" 제보로만 갱신된다 — 정보 신선도가
+  // 중요해서, 오늘 제보가 없으면 어제 이전 값을 이어 보여주지 않고 "오늘 정보 없음"으로 표시한다.
+  Widget _buildRealtimeDashboard() {
+    final crowdCode = _liveStatus?.currentCrowdedness;
+    final waitCode = _liveStatus?.currentWaitingTime;
+    final parkCode = _liveStatus?.currentParkingStatus;
+    const noInfoToday = '오늘 정보 없음';
+    final crowd = crowdCode == null ? noInfoToday : MockDataService.crowdednessLabel(crowdCode);
+    final wait = waitCode == null ? noInfoToday : MockDataService.waitingTimeLabel(waitCode);
+    final park = parkCode == null ? noInfoToday : MockDataService.parkingLabel(parkCode);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      color: Colors.white,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('오늘의 현장 상황', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[600])),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _buildDashItem(Icons.people_alt_rounded, '혼잡도', crowd, crowdCode == null ? Colors.grey : _crowdColor(crowdCode)),
+              const SizedBox(width: 10),
+              _buildDashItem(Icons.access_time_rounded, '대기시간', wait, waitCode == null ? Colors.grey : LiveSpotTheme.primaryColor),
+              const SizedBox(width: 10),
+              _buildDashItem(Icons.local_parking_rounded, '주차', park, parkCode == null ? Colors.grey : _crowdColor(parkCode)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _crowdColor(String code) => code == 'EASY' ? Colors.green : code == 'NORMAL' ? Colors.orange : Colors.red;
+
+  Widget _buildDashItem(IconData icon, String label, String value, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(color: color.withOpacity(0.08), borderRadius: BorderRadius.circular(12)),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(height: 4),
+            Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+            const SizedBox(height: 2),
+            Text(value, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── AI 브리핑 (기능 10) ──
+  // 상태는 셋뿐이다: 로딩(스켈레톤) / 정상(타이핑 본문) / 실패(섹션 자체를 숨김).
+  // 서버가 실패해도 200 + TEMPLATE·NONE으로 오므로 "AI가 실패했어요" 같은 화면은 없다.
+  Widget _buildAiBriefingSection() {
+    final briefing = _briefing;
+
+    // 네트워크 단절·404로 아예 못 받은 경우. 빈 카드나 에러 문구를 남기지 않고 통째로
+    // 비운다 — 못 그리면 숨기는 쪽이 정직하다(WeatherBadge와 같은 정책).
+    if (!_briefingLoading && briefing == null) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      color: Colors.white,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF1E88E5), Color(0xFF7C4DFF)]), borderRadius: BorderRadius.circular(6)),
+                child: const Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.auto_awesome, color: Colors.white, size: 14), SizedBox(width: 4), Text('AI 브리핑', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold))]),
+              ),
+              const Spacer(),
+              // ⚠️ 이 라벨은 **실제로 Gemini가 문장을 쓴 경우에만** 붙는다.
+              // source=TEMPLATE(서버가 재료만 이어 붙임)·NONE(AI 호출 안 함)에는 절대
+              // 붙이지 않는다. 예전에는 여기가 하드코딩이라 템플릿 문장에도 AI 라벨이
+              // 붙어 있었다 — 없는 근거를 주장하는 상태였다.
+              // 판정은 Briefing.isAiGenerated 하나로 모으고, 모르는 source 값은 false다.
+              if (briefing != null && briefing.isAiGenerated)
+                Text('Gemini로 생성됨', style: TextStyle(fontSize: 11, color: Colors.grey[400])),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (briefing == null)
+            _buildBriefingSkeleton()
+          else
+            Text(_displayedBriefing, style: TextStyle(fontSize: 14, height: 1.6, color: Colors.grey[700])),
+        ],
+      ),
+    );
+  }
+
+  /// 응답 도착 전 자리를 잡아두는 회색 바 3줄. 캐시 미스 시 생성에 수 초가 걸려서,
+  /// 이게 없으면 섹션이 갑자기 나타났다 사라지는 것처럼 보인다.
+  Widget _buildBriefingSkeleton() {
+    Widget bar(double widthFactor) => FractionallySizedBox(
+          widthFactor: widthFactor,
+          alignment: Alignment.centerLeft,
+          child: Container(
+            height: 12,
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(color: Colors.grey[200], borderRadius: BorderRadius.circular(6)),
+          ),
+        );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [bar(1.0), bar(0.95), bar(0.6)],
+    );
+  }
+
+  // ── 개요 (공식 정보) ──
+  // KTO API 원문은 <br> 등 HTML 태그와 엔티티(&amp; 등)를 자주 포함한다 — 사용자에게
+  // 그대로 노출하지 않고 <br>은 줄바꿈으로, 나머지 태그/엔티티는 걷어낸다.
+  Widget _buildOverviewSection() {
+    if (_spotDetail?['overview'] == null || _spotDetail!['overview'].toString().isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final rawText = _spotDetail!['overview'].toString();
+    final cleanText = _cleanOverviewText(rawText);
+    const textStyle = TextStyle(fontSize: 14, height: 1.6, color: Color(0xFF616161)); // Colors.grey[700]
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      color: Colors.white,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('관광지 소개', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey[800])),
+          const SizedBox(height: 8),
+          // 기본 5줄까지만 보여주고, 5줄을 넘칠 때만 더보기/접기를 노출한다.
+          // TextPainter로 실제 렌더 폭 기준 줄바꿈 여부를 재서 넘치는지 판단한다 —
+          // 문자 수로 어림하면 폭이 넓은 문자·좁은 폭에서 어긋난다.
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final tp = TextPainter(
+                text: TextSpan(text: cleanText, style: textStyle),
+                maxLines: 5,
+                textDirection: TextDirection.ltr,
+              )..layout(maxWidth: constraints.maxWidth);
+              final overflows = tp.didExceedMaxLines;
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    cleanText,
+                    style: textStyle,
+                    maxLines: _overviewExpanded ? null : 5,
+                    overflow: _overviewExpanded ? TextOverflow.visible : TextOverflow.ellipsis,
+                  ),
+                  if (overflows) ...[
+                    const SizedBox(height: 4),
+                    InkWell(
+                      onTap: () => setState(() => _overviewExpanded = !_overviewExpanded),
+                      child: Text(
+                        _overviewExpanded ? '접기' : '더보기',
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: LiveSpotTheme.primaryColor),
+                      ),
+                    ),
+                  ],
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _cleanOverviewText(String raw) {
+    var text = raw.replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n');
+    text = text.replaceAll(RegExp(r'<[^>]+>'), '');
+    const entities = {
+      '&amp;': '&',
+      '&lt;': '<',
+      '&gt;': '>',
+      '&quot;': '"',
+      '&apos;': "'",
+      '&#39;': "'",
+      '&nbsp;': ' ',
+    };
+    entities.forEach((entity, replacement) {
+      text = text.replaceAll(entity, replacement);
+    });
+    text = text.replaceAll(RegExp(r'&[a-zA-Z0-9#]+;'), '');
+    return text.trim();
+  }
+
+  // ── 기본 정보 ──
+  Widget _buildBasicInfoSection() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      color: Colors.white,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('기본 정보', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey[800])),
+          const SizedBox(height: 12),
+          _infoRow(Icons.location_on_outlined, '주소', widget.spot.address ?? '정보 없음'),
+          if (_spotDetail?['tel'] != null && _spotDetail!['tel']!.toString().isNotEmpty)
+            _infoRow(Icons.phone_outlined, '전화', _spotDetail!['tel']),
+          if (_spotIntro?['use_time'] != null && _spotIntro!['use_time']!.toString().isNotEmpty)
+            _infoRow(Icons.access_time_outlined, '운영 시간', _spotIntro!['use_time']),
+          if (_spotIntro?['use_fee'] != null && _spotIntro!['use_fee']!.toString().isNotEmpty)
+            _infoRow(Icons.attach_money_outlined, '이용 요금', _spotIntro!['use_fee']),
+          if (_spotIntro?['parking'] != null && _spotIntro!['parking']!.toString().isNotEmpty)
+            _infoRow(Icons.local_parking_outlined, '주차 여부', _spotIntro!['parking']),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () {},
+              icon: const Icon(Icons.directions),
+              label: const Text('카카오맵으로 길찾기'),
+              style: OutlinedButton.styleFrom(foregroundColor: LiveSpotTheme.primaryColor, side: const BorderSide(color: LiveSpotTheme.primaryColor), padding: const EdgeInsets.symmetric(vertical: 12), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(IconData icon, String label, String value) {
+    // TourAPI 원문에는 use_time·use_fee·parking처럼 <br> 태그가 섞여 오는 필드가 있다.
+    // "관광지 소개"와 같은 정리 함수를 그대로 써서 실제 줄바꿈으로 바꾼다.
+    final cleaned = _cleanOverviewText(value);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: Colors.grey[500]),
+          const SizedBox(width: 8),
+          SizedBox(width: 60, child: Text(label, style: TextStyle(fontSize: 13, color: Colors.grey[500]))),
+          Expanded(child: Text(cleaned, style: TextStyle(fontSize: 13, color: Colors.grey[800]))),
+        ],
+      ),
+    );
+  }
+
+  // ── 리뷰 섹션 ──
+  Widget _buildReviewSection() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      color: Colors.white,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('📝 현장 제보', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey[800])),
+          const SizedBox(height: 8),
+          if (_reportsLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 20),
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            )
+          else if (_reports.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(12)),
+              child: Center(child: Text('아직 제보가 없어요.\n첫 번째 현장 제보를 남겨보세요!', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey[400]))),
+            )
+          else
+            ..._reports.map((r) => Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(12)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          CircleAvatar(radius: 12, backgroundColor: LiveSpotTheme.primaryColor.withOpacity(0.2), child: Text(r.userNickname.substring(0, 1), style: const TextStyle(fontSize: 10, color: LiveSpotTheme.primaryColor, fontWeight: FontWeight.bold))),
+                          const SizedBox(width: 6),
+                          Text(r.userNickname, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                          const SizedBox(width: 4),
+                          if (r.gpsVerified) const GpsVerifiedBadge(),
+                          const Spacer(),
+                          Text(Formatters.reportRecency(r.createdAt), style: TextStyle(fontSize: 10, color: Colors.grey[400])),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        children: [
+                          _chipBadge('혼잡도: ${MockDataService.crowdednessLabel(r.crowdednessLevel)}', _crowdColor(r.crowdednessLevel)),
+                          _chipBadge('대기: ${MockDataService.waitingTimeLabel(r.waitingTime)}', LiveSpotTheme.primaryColor),
+                          if (r.parkingStatus != null) _chipBadge('주차: ${MockDataService.parkingLabel(r.parkingStatus!)}', _crowdColor(r.parkingStatus!)),
+                        ],
+                      ),
+                      if (r.comment != null) ...[
+                        const SizedBox(height: 4),
+                        Text(r.comment!, style: TextStyle(fontSize: 13, color: Colors.grey[700])),
+                      ],
+                    ],
+                  ),
+                )),
+        ],
+      ),
+    );
+  }
+
+  Widget _chipBadge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
+      child: Text(text, style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w600)),
+    );
+  }
+
+  // ── 제보 모달 ──
+  void _showReportModal(BuildContext context) async {
+    final result = await showModalBottomSheet<Report>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => QuickReportModal(
+        spotName: widget.spot.title,
+        spotContentId: widget.spot.contentId,
+      ),
+    );
+    if (result != null) {
+      _fetchReports();
+      _fetchLiveStatus();
+    }
+  }
+}
