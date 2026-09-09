@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
 from typing import Optional
 
 class Settings(BaseSettings):
@@ -13,6 +14,18 @@ class Settings(BaseSettings):
     # 로컬 개발 기본값은 SQLite. 배포 시 .env에서 PostgreSQL DSN(postgresql+asyncpg://...)으로 덮어씀
     # (Phase 2+ 로그인·제보·Credit 등 사용자 데이터용. TourAPI 데이터는 캐싱하지 않고 실시간 호출로 사용)
     DATABASE_URL: str = "sqlite+aiosqlite:///./livespot.db"
+
+    # Railway 등 PaaS의 Postgres 플러그인은 DATABASE_URL을 postgres:// 또는 postgresql://
+    # 스킴으로 내려준다. SQLAlchemy 비동기 엔진(asyncpg 드라이버)이 요구하는
+    # postgresql+asyncpg:// 로 여기서 자동 보정한다.
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def _normalize_database_url(cls, v: str) -> str:
+        if v.startswith("postgres://"):
+            return "postgresql+asyncpg://" + v[len("postgres://"):]
+        if v.startswith("postgresql://"):
+            return "postgresql+asyncpg://" + v[len("postgresql://"):]
+        return v
 
     # GPS 인증 (기능 3): 100m + 측정오차(최대 50m까지 인정) → 실제 판정 반경은 두 값의 합(150m)
     GPS_VERIFICATION_RADIUS_M: int = 100

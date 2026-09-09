@@ -375,11 +375,25 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
         ),
       ],
       flexibleSpace: FlexibleSpaceBar(
-        title: Text(
-          widget.spot.title,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16, shadows: [Shadow(color: Colors.black45, blurRadius: 8)]),
+        // 관광지명과 날씨 배지를 같은 줄(Row)에 두고 배지를 오른쪽 끝에 붙인다.
+        // 로딩 중이거나 조회 실패(_weather == null)면 배지 없이 이름만 그린다 —
+        // 에러 문구·SnackBar를 띄우지 않는다. available:false는 회색 fallback pill로 그려진다.
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                widget.spot.title,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16, shadows: [Shadow(color: Colors.black45, blurRadius: 8)]),
+              ),
+            ),
+            if (_weather != null) ...[
+              const SizedBox(width: 8),
+              WeatherBadge(weather: _weather!, onImage: true, compact: true),
+            ],
+          ],
         ),
+        titlePadding: const EdgeInsetsDirectional.only(start: 16, end: 16, bottom: 16),
         background: Stack(
           fit: StackFit.expand,
           children: [
@@ -388,21 +402,6 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
                 ? Image.network(resolveImageUrl(widget.spot.imageUrl)!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _gradientPlaceholder())
                 : _gradientPlaceholder(),
             const DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.transparent, Colors.black54]))),
-            // 날씨 배지는 헤더 이미지 위, 액션 아이콘 줄(뒤로가기·알림·북마크) 바로 아래
-            // 우측 상단에 고정한다. 관광지명과 같은 Row에 두던 예전 배치는 폐기했다 —
-            // 접힌 상태에서 액션 아이콘 2개와 폭을 다투기 때문이다.
-            //
-            // background에 있으므로 헤더가 접히면 이미지와 함께 배지도 사라진다. 이는
-            // 의도된 동작이다: 날씨는 부수 정보이고, 좁아진 헤더는 제목과 동작 버튼에 양보한다.
-            //
-            // 로딩 중이거나 조회 실패(_weather == null)면 배지 자리 자체가 생기지 않는다 —
-            // 에러 문구·SnackBar를 띄우지 않는다. available:false는 회색 fallback pill로 그려진다.
-            if (_weather != null)
-              Positioned(
-                top: MediaQuery.of(context).padding.top + kToolbarHeight + 8,
-                right: 16,
-                child: WeatherBadge(weather: _weather!, onImage: true, compact: true),
-              ),
           ],
         ),
       ),

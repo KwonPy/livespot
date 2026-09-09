@@ -1,5 +1,10 @@
 class AppConstants {
-  static const String apiBaseUrl = 'http://127.0.0.1:8000/api';
+  // 배포 빌드는 --dart-define=API_BASE_URL=https://<railway-backend-domain>/api 로 덮어씀.
+  // 값을 주지 않으면 로컬 개발 기본값(127.0.0.1:8000) 사용.
+  static const String apiBaseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://127.0.0.1:8000/api',
+  );
   static const int gpsVerificationRadius = 500; // 500 meters
 
   // 자동 제보 유도 알림 (앱이 foreground일 때만 동작 — 백그라운드/OS Geofencing 없음)
