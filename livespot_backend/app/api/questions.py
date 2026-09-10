@@ -23,6 +23,11 @@ from app.services.tour_api import TourAPIService
 from app.services.geo import calculate_distance_m
 from app.services import credit as credit_service
 from app.services.spot_lookup import resolve_spot_names
+from app.services.question_query import (
+    build_question_response as _to_response,
+    fetch_spot_questions,
+    question_status as _status,
+)
 
 router = APIRouter()
 tour_service = TourAPIService()
@@ -39,40 +44,11 @@ def _kst_today_start_utc() -> datetime:
     return start_of_today_kst - _KST_OFFSET
 
 
-def _status(question: Question) -> str:
-    return "EXPIRED" if datetime.utcnow() >= question.created_at + timedelta(hours=QUESTION_TTL_HOURS) else "ACTIVE"
-
-
-async def _to_response(db: AsyncSession, question: Question, asker_nickname: str) -> QuestionResponse:
-    result = await db.execute(
-        select(Answer, User.nickname)
-        .join(User, Answer.user_id == User.id)
-        .where(Answer.question_id == question.id)
-        .order_by(Answer.created_at.asc())
-    )
-    answers = [
-        AnswerResponse(
-            id=a.id,
-            question_id=a.question_id,
-            user_id=a.user_id,
-            user_nickname=nickname,
-            content=a.content,
-            created_at=a.created_at,
-        )
-        for a, nickname in result.all()
-    ]
-    return QuestionResponse(
-        id=question.id,
-        user_id=question.user_id,
-        user_nickname=asker_nickname,
-        spot_content_id=question.spot_content_id,
-        content=question.content,
-        status=_status(question),
-        answer_count=question.answer_count,
-        created_at=question.created_at,
-        expires_at=question.created_at + timedelta(hours=QUESTION_TTL_HOURS),
-        answers=answers,
-    )
+# _status(만료 판정)와 _to_response(질문+답변 조립)는 services/question_query.py로 옮겼다.
+# 위치 신호 응답(POST /reports/verify-location)이 "답변 대기 질문"을 동봉하는데(기능 6),
+# 그 목록이 아래 GET /questions?pending_only=true 와 정확히 같아야 하기 때문이다 —
+# 라우터에 두면 reports.py가 questions.py를 import하게 되고, 복붙하면 두 목록이 갈라진다.
+# 동작은 이전과 동일하다(이름도 그대로 유지해 호출부는 손대지 않았다).
 
 
 @router.post("", response_model=QuestionResponse)
@@ -132,22 +108,14 @@ async def get_questions(
     활성 질문만 보여주는 정책이라 사용. 상세페이지는 기본값(False)으로 만료 질문도 "만료"
     배지와 함께 계속 보여준다.
     pending_only=True면 추가로 답변이 하나도 없는 질문만 돌려준다.
-    """
-    today_cutoff = _kst_today_start_utc()
-    stmt = (
-        select(Question, User.nickname)
-        .join(User, Question.user_id == User.id)
-        .where(Question.spot_content_id == spot_content_id, Question.created_at >= today_cutoff)
-        .order_by(Question.created_at.desc())
-    )
-    if pending_only or active_only:
-        not_expired_cutoff = datetime.utcnow() - timedelta(hours=QUESTION_TTL_HOURS)
-        stmt = stmt.where(Question.created_at >= not_expired_cutoff)
-    if pending_only:
-        stmt = stmt.where(Question.answer_count == 0)
 
-    result = await db.execute(stmt)
-    return [await _to_response(db, question, nickname) for question, nickname in result.all()]
+    쿼리 본체는 services/question_query.fetch_spot_questions에 있다 — 위치 신호 응답의
+    "답변 대기 질문" 배너(기능 6)가 같은 함수를 부르기 위함이다.
+    """
+    rows = await fetch_spot_questions(
+        db, spot_content_id, pending_only=pending_only, active_only=active_only
+    )
+    return [await _to_response(db, question, nickname) for question, nickname in rows]
 
 
 @router.get("/me", response_model=List[MyQuestionEntry])

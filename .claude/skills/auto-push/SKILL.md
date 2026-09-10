@@ -26,10 +26,7 @@ description: "사용자가 명시적으로 GitHub 업데이트를 요청했을 �
    `git add -A`나 `git add .` 대신 실제로 바뀐 파일을 지정한다. 커밋 전 `git status`로 스테이징된 내용에 `.env`, 자격증명 등 민감 파일이 섞였는지 반드시 확인한다.
 
 4. **커밋**
-   사용자가 지정한 메시지로 커밋한다. 메시지 끝에 다음 줄을 추가한다:
-   ```
-   Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
-   ```
+   사용자가 지정한 메시지로, 그 메시지 그대로 커밋한다. `Co-Authored-By: Claude ...` 같은 공동 작성자 trailer는 붙이지 않는다 — GitHub 저장소 화면에 Claude가 기여자로 노출되는 것을 사용자가 원치 않는다.
 
 5. **push**
    현재 브랜치가 추적하는 원격 저장소·브랜치로 push한다.
@@ -48,6 +45,7 @@ description: "사용자가 명시적으로 GitHub 업데이트를 요청했을 �
 ## 하지 않는 것
 
 - 커밋 메시지를 임의로 작성하는 것
+- 커밋 메시지에 `Co-Authored-By: Claude ...` 등 공동 작성자 trailer를 추가하는 것
 - `--no-verify`, `--force` 등 안전장치를 우회하는 것
 - CI/테스트/lint 실행
 - Railway 배포를 직접 트리거하는 것 (push만 하면 자동 배포됨)

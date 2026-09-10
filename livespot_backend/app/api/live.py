@@ -15,6 +15,7 @@ from app.services.report_window import (
     live_window_cutoff_utc as _window_cutoff,
     today_cutoff_utc as _today_cutoff_utc,
 )
+from app.services.presence import count_onsite_users
 
 router = APIRouter()
 tour_service = TourAPIService()
@@ -52,14 +53,20 @@ async def get_live_status(content_id: str, db: AsyncSession = Depends(get_db)):
     is_live/recent_report_count는 "최근 LIVE_WINDOW_HOURS" 기준(활동성 판정)이고,
     현재 혼잡도/대기시간/주차는 "당일(KST)" 기준(정보 신선도)으로 서로 다른 시간창을 쓴다.
     당일 제보가 하나도 없으면 현재 상황 3개 필드는 전부 null — 어제 값을 그대로 보여주지 않는다.
+    onsite_user_count는 또 다른 시간창(최근 PRESENCE_WINDOW_MINUTES=30분)이다 — 앱은
+    이 숫자 옆에 "최근 30분"을 개별 표기해야 한다(헤더의 "최근 2시간"이 대표하지 않는다).
     """
     latest_window, count = await _latest_and_count(db, content_id, _window_cutoff())
     latest_today, _ = await _latest_and_count(db, content_id, _today_cutoff_utc())
+    # 현장 인원 판정은 여기서 짜지 않고 services/presence.py의 공용 함수를 부른다 —
+    # 기능 8(질문 알림 대상)이 같은 함수를 재사용해야 화면 숫자와 알림 대상이 일치한다.
+    onsite_user_count = await count_onsite_users(db, content_id)
 
     return LiveStatusResponse(
         content_id=content_id,
         is_live=latest_window is not None,
         recent_report_count=count,
+        onsite_user_count=onsite_user_count,
         current_crowdedness=latest_today.crowdedness_level if latest_today else None,
         current_waiting_time=latest_today.waiting_time if latest_today else None,
         current_parking_status=latest_today.parking_status if latest_today else None,

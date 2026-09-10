@@ -123,6 +123,18 @@ def _status(q: Question) -> str:
 
 "하루 단위 리셋"도 데이터를 지우는 게 아니라 **오늘(KST) 것만 필터링**한다. `questions.py::_kst_today_start_utc()` / `live.py::_today_cutoff_utc()`를 재사용한다.
 
+### 같은 판정을 두 곳이 쓰면 라우터가 아니라 서비스에 둔다
+
+"이 조건에 해당하는 사용자/항목은 누구인가"를 **두 개 이상의 기능이 물어보게 될 것 같으면**, 라우터에 쿼리를 직접 쓰지 말고 `app/services/`에 판정 함수로 뺀다. 각 라우터가 자기 쿼리를 짜면 조건이 조금씩 갈려서 **"화면에는 3명이라고 떠 있는데 알림은 1명에게만 가는"** 상태가 된다. 이건 테스트로 잡히지 않는다 — 양쪽 다 각자는 맞기 때문이다.
+
+```python
+# services/presence.py — 인원 표시와 (앞으로 만들) 푸시 대상이 같은 WHERE를 쓴다
+async def count_onsite_users(db, spot_content_id) -> int: ...
+async def get_onsite_user_ids(db, spot_content_id) -> List[str]: ...
+```
+
+아직 두 번째 소비자가 없어도 만든다. 시간창 cutoff도 함수 안에 복붙하지 말고 `services/report_window.py` 한 곳에서 가져온다.
+
 ### 외부 API — 읽기는 살아있게
 
 날씨·집중률·AI 브리핑이 실패해도 예외를 던지지 않는다. 폴백 값을 반환한다.

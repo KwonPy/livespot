@@ -1,16 +1,19 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../config/theme.dart';
+import '../../config/constants.dart';
 import '../../services/api_service.dart';
 import '../../services/location_service.dart';
 import '../../models/spot.dart';
 import '../../models/hotspot_entry.dart';
+import '../../models/question.dart';
 import '../../utils/formatters.dart';
 import '../../utils/image_url.dart';
 import '../../widgets/quick_report_modal.dart';
 import '../../widgets/qa_section.dart';
 import '../../widgets/global_qa_list.dart';
 import '../../widgets/gps_verified_badge.dart';
+import '../../widgets/pending_questions_banner.dart';
 import '../detail/spot_detail_screen.dart';
 
 enum _GpsMatchStatus { idle, loading, matched, none, error }
@@ -37,6 +40,17 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
   _GpsMatchStatus _gpsMatchStatus = _GpsMatchStatus.idle;
   Spot? _gpsMatchedSpot;
   String? _gpsMatchError;
+
+  // ── 기능 6(현장 사용자 수 집계) ──
+  // 아래 3분 타이머의 verify-location 호출이 곧 위치 신호다(Q1-C). 신규 API도 신규
+  // 타이머도 없다 — 여기서 하는 일은 "이미 보내고 있던 신호"의 응답을 화면에 쓰는 것뿐.
+  //
+  // null = 아직 못 읽었거나 조회에 실패함 → 표기를 아예 숨긴다.
+  // 0    = 서버가 "최근 30분 안에 아무도 없었다"고 답한 값 → "0명"으로 그린다.
+  // 이 둘을 뭉개면 조회 실패가 "0명"으로 보인다.
+  int? _onsiteUserCount;
+  // 위치 신호 응답에 실려 온 답변 대기 질문(Q6-A). presence_registered == true일 때만 채운다.
+  List<Question> _pendingQuestions = [];
 
   // 현장 인증 상태는 영구적이지 않고 일정 시간 동안만 유효하다(정책) — GPS 연동이
   // 켜져 있는 동안 주기적으로 인증을 다시 확인해, 사용자가 자리를 뜨면 "내 현장 Q&A"가
@@ -81,6 +95,8 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
         _gpsMatchStatus = _GpsMatchStatus.idle;
         _gpsMatchedSpot = null;
         _gpsMatchError = null;
+        _onsiteUserCount = null;
+        _pendingQuestions = [];
       });
     }
   }
@@ -94,21 +110,35 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
       final position = await _locationService.getCurrentPosition();
       final nearby = await _apiService.fetchNearbySpots(position.latitude, position.longitude, radius: 500);
       if (nearby.isEmpty) {
-        if (mounted) setState(() => _gpsMatchStatus = _GpsMatchStatus.none);
+        if (mounted) {
+          setState(() {
+            _gpsMatchStatus = _GpsMatchStatus.none;
+            _onsiteUserCount = null;
+            _pendingQuestions = [];
+          });
+        }
         return;
       }
       final candidate = nearby.first;
+      // 이 호출이 곧 위치 신호다 — 서버가 반경 판정을 통과시키면 presence를 갱신하고
+      // 답변 대기 질문을 함께 실어 보낸다(기능 6, Q1-C).
       final verify = await _apiService.verifyLocation(candidate.contentId, position.latitude, position.longitude);
       if (!mounted) return;
       if (verify.verified) {
         setState(() {
           _gpsMatchStatus = _GpsMatchStatus.matched;
           _gpsMatchedSpot = candidate;
+          // presence가 실제로 등록된 경우에만 대기 질문을 담는다. 인증되지 않은
+          // 사용자에게 답변 버튼이 보이는 경로를 데이터 단계에서 없앤다.
+          _pendingQuestions = verify.presenceRegistered ? verify.pendingQuestions : [];
         });
+        await _fetchOnsiteCount(candidate.contentId);
       } else {
         setState(() {
           _gpsMatchStatus = _GpsMatchStatus.none;
           _gpsMatchedSpot = null;
+          _onsiteUserCount = null;
+          _pendingQuestions = [];
         });
       }
     } catch (e) {
@@ -116,8 +146,25 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
       setState(() {
         _gpsMatchStatus = _GpsMatchStatus.error;
         _gpsMatchedSpot = null;
+        _onsiteUserCount = null;
+        _pendingQuestions = [];
         _gpsMatchError = e.toString().replaceFirst('Exception: ', '');
       });
+    }
+  }
+
+  // 현장 인원은 상세페이지와 **같은** LiveStatusResponse에서 꺼낸다 — 인원 전용
+  // 엔드포인트를 만들지 않는다(P13). 인증 성공 직후에 부르므로 방금 보낸 내 신호도
+  // 이미 반영돼 있다.
+  //
+  // 실패해도 GPS 인증 자체는 성공한 상태라 "내 현장 Q&A"를 지우지 않는다. 인원 표기만
+  // 사라진다(null) — 실패를 "0명"으로 적으면 없는 사실을 주장하는 셈이 된다.
+  Future<void> _fetchOnsiteCount(String contentId) async {
+    try {
+      final status = await _apiService.fetchLiveStatus(contentId);
+      if (mounted) setState(() => _onsiteUserCount = status.onsiteUserCount);
+    } catch (_) {
+      if (mounted) setState(() => _onsiteUserCount = null);
     }
   }
 
@@ -247,18 +294,31 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
               width: double.infinity,
               padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
               color: Colors.white,
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('📍 내 현장 · ',
-                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: LiveSpotTheme.primaryColor, fontFamily: 'Pretendard')),
-                  Expanded(
-                    child: Text(spot.title,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, fontFamily: 'Pretendard')),
+                  Row(
+                    children: [
+                      const Text('📍 내 현장 · ',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: LiveSpotTheme.primaryColor, fontFamily: 'Pretendard')),
+                      Expanded(
+                        child: Text(spot.title,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, fontFamily: 'Pretendard')),
+                      ),
+                      const GpsVerifiedBadge(),
+                    ],
                   ),
-                  const GpsVerifiedBadge(),
+                  _buildOnsiteCountLine(),
                 ],
               ),
+            ),
+            // Q6-A: 답변 대기 질문 배너. 위치 신호 응답에 실려 온 목록을 그대로 쓴다.
+            PendingQuestionsBanner(
+              questions: _pendingQuestions,
+              spotName: spot.title,
+              // 답변하면 신호를 다시 보내 대기 목록·인원을 서버 기준으로 갱신한다.
+              onAnswered: () => _refreshGpsMatch(silent: true),
             ),
             QaSection(spotContentId: spot.contentId, spotName: spot.title, showAskButton: false, activeOnly: true),
           ],
@@ -315,6 +375,37 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
       case _GpsMatchStatus.idle:
         return const SizedBox.shrink();
     }
+  }
+
+  // ── 기능 6: "지금 여기 N명" (Q5-B). 상세페이지 LIVE 상태창과 **같은** 서버 값
+  // (LiveStatusResponse.onsite_user_count)을 쓴다 — 앱이 따로 세지 않는다.
+  //
+  // "지금 여기"는 답변을 부탁하는 맥락의 표현이고, 그 숫자의 실제 기준은 바로 옆에
+  // 붙는 "최근 30분 기준"이다. 두 문구는 항상 붙어 다녀야 한다 — 기준을 떼면 "실시간
+  // 접속자 수"라는, 우리가 알 수 없는 사실을 주장하게 된다(P6·P15).
+  //
+  // 조회하지 못했으면(null) 줄 자체를 감춘다. "0명"으로 적으면 실패가 사실로 둔갑한다.
+  Widget _buildOnsiteCountLine() {
+    final count = _onsiteUserCount;
+    if (count == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(
+        children: [
+          Icon(Icons.person_pin_circle_outlined, size: 14, color: Colors.grey[600]),
+          const SizedBox(width: 4),
+          Text(
+            '지금 여기 $count명',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey[800], fontFamily: 'Pretendard'),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            '· 최근 ${AppConstants.presenceWindowMinutes}분 기준',
+            style: TextStyle(fontSize: 11, color: Colors.grey[500], fontFamily: 'Pretendard'),
+          ),
+        ],
+      ),
+    );
   }
 
   // ── 🔥 HOT SPOTS (TOP5). 1순위: 최근 실제 현장 제보, 2순위: 집중률 예측 — 서버가

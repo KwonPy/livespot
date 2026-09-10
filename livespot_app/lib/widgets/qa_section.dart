@@ -132,6 +132,26 @@ class _QaSectionState extends State<QaSection> {
                   child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
                 );
               }
+              // 조회 실패를 "질문이 없어요"로 뭉개지 않는다 — 두 상황은 원인도 대처도
+              // 다른데 같은 회색 문구로 보이면 화면만 보고는 구분할 수 없다.
+              if (snapshot.hasError) {
+                return Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(12)),
+                  child: Row(
+                    children: [
+                      Icon(Icons.error_outline, color: Colors.red.shade300),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          '질문을 불러오지 못했어요: ${snapshot.error.toString().replaceFirst('Exception: ', '')}',
+                          style: const TextStyle(fontFamily: 'Pretendard', fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }
               final questions = snapshot.data ?? [];
               if (questions.isEmpty) {
                 return Container(

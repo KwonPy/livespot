@@ -38,6 +38,29 @@ def live_window_cutoff_utc() -> datetime:
     return datetime.utcnow() - timedelta(hours=settings.LIVE_WINDOW_HOURS)
 
 
+def presence_window_cutoff_utc() -> datetime:
+    """"현장 사용자"(기능 6)를 판정하는 최근 N분 시간창의 시작 시각.
+
+    presences.last_seen이 이 시각 이상이면 현장 사용자다. 상태 컬럼도 배치도 쓰지 않고
+    조회 시점에 계산한다. 이 cutoff는 (a) LIVE 상태창의 onsite_user_count와
+    (b) 앞으로 붙을 기능 8의 알림 대상 판정이 **같은 함수**를 공유해야 하므로 여기 둔다 —
+    복붙하면 "화면에는 잡히는데 알림은 안 가는" 모순이 생긴다.
+
+    제보 모듈에 presence cutoff가 있는 게 어색해 보이지만, 이 파일의 존재 이유가
+    "시간창 정의를 한 곳에 모은다"이므로 새 모듈을 파지 않고 여기에 이어 붙인다.
+    """
+    return datetime.utcnow() - timedelta(minutes=settings.PRESENCE_WINDOW_MINUTES)
+
+
+def presence_retention_cutoff_utc() -> datetime:
+    """presences 행을 실제로 DELETE하는 기준 시각. 이보다 오래된 last_seen은 파기 대상.
+
+    30분 창(위)이 "지금 현장에 있나"의 판정이라면, 이쪽은 프라이버시 약속("24시간 뒤
+    삭제")의 이행 기준이다. 두 값이 다른 목적을 가지므로 상수도 따로 둔다.
+    """
+    return datetime.utcnow() - timedelta(hours=settings.PRESENCE_RETENTION_HOURS)
+
+
 async def latest_and_count(
     db: AsyncSession, spot_content_id: str, cutoff: datetime
 ) -> Tuple[Optional[Report], int]:

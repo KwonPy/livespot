@@ -73,7 +73,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _reloadStats() {
-    setState(() => _statsFuture = _loadStats());
+    // 화살표 본문(`=> _statsFuture = _loadStats()`)으로 쓰면 대입식의 값인 Future가
+    // setState의 반환값이 되어 "setState() callback argument returned a Future"로 터진다.
+    // 블록 본문이라 반환값이 없다 — Future를 만드는 것 자체는 여기서 해도 된다
+    // (await하지 않으므로 setState 안에서 비동기 작업을 기다리는 게 아니다).
+    setState(() {
+      _statsFuture = _loadStats();
+    });
   }
 
   Future<void> _loadTestUsers() async {

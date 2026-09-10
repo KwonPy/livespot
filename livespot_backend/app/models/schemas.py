@@ -194,10 +194,24 @@ class VerifyLocationRequest(BaseModel):
 
 
 class VerifyLocationResponse(BaseModel):
+    """GPS 능동 인증 응답. 기능 6(현장 사용자 수 집계)이 이 API에 얹혀 있어 필드가 둘 늘었다.
+
+    이 호출은 이미 (ⓐ 상세페이지 진입/현장 제보 버튼, ⓑ Live 화면 GPS 토글이 켜진 동안
+    3분마다) 도는 "지금 내가 여기 있다" 신호라, 새 위치 전송 채널을 만들지 않고 여기에
+    presence 갱신을 얹었다. 인증이 실패해도 200이므로 앱은 아래 두 필드를 항상 읽을 수 있다.
+    """
+
     verified: bool
     distance_m: float
     threshold_m: int
     message: str
+    # 이 신호로 현장 사용자(presence) 기록이 실제로 갱신됐는지. 반경 밖이면 false지만
+    # HTTP 상태는 그대로 200이다 — 위치 신호는 배경 동작이라 에러로 표시하면 안 된다.
+    presence_registered: bool = False
+    # 지금 이 관광지에서 답변을 기다리는 질문 상위 N건(활성·답변 0건, 최신순).
+    # 웹에는 푸시가 없어 이 동봉 목록이 사실상 답변 유도의 주 전달 경로다.
+    # 인증 실패(반경 밖)면 빈 배열 — 답변은 현장 인증자만 달 수 있으므로 유도할 이유가 없다.
+    pending_questions: List["QuestionResponse"] = Field(default_factory=list)
 
 
 # ──────────────────── 관광지별 자동 제보 유도 알림 설정 ────────────────────
@@ -212,14 +226,19 @@ class NotificationSettingResponse(BaseModel):
     push_enabled: bool
 
 
-# ──────────────────── LIVE 상태창 (기능 5) ────────────────────
-# 실제 제보(reports) 기반으로 매번 실시간 계산한다. presence/questions가 아직 없어서
-# "현장 인원"·"질문"은 내려주지 않는다 — 없는 데이터를 지어내지 않는다는 원칙.
+# ──────────────────── LIVE 상태창 (기능 5 · 6) ────────────────────
+# 실제 제보(reports)·현장 신호(presences) 기반으로 매번 실시간 계산한다. 서로 다른 세 개의
+# 시간창이 한 응답에 들어 있으므로(최근 2시간 / 당일 KST / 최근 30분) 앱은 각 숫자 옆에
+# 근거 기간을 개별 표기해야 한다 — 한 줄에 나란히 두고 하나의 기준으로 설명하면 거짓말이 된다.
 
 class LiveStatusResponse(BaseModel):
     content_id: str
     is_live: bool  # 최근 LIVE_WINDOW_HOURS 안에 제보가 하나라도 있는지
     recent_report_count: int  # 그 시간창 안의 제보 건수
+    # 최근 PRESENCE_WINDOW_MINUTES(30분) 안에 위치 신호를 보낸 사용자 수(중복 제거).
+    # Optional이 아니라 int다 — 우리 DB 조회라 실패하면 500이 정직하고, "0명"과 "모름"을
+    # 구분할 필요가 없다. 외부 API용 available:false 폴백 패턴을 여기 쓰지 않는다.
+    onsite_user_count: int = 0
     # 아래 3개는 "당일(KST 자정 기준)" 제보 중 가장 최근 1건의 값 — 신선도가 중요해 별도 기준 사용.
     # 당일 제보가 없으면 전부 null (어제 값을 그대로 보여주지 않음).
     current_crowdedness: Optional[str] = None
@@ -294,6 +313,12 @@ class QuestionResponse(BaseModel):
     created_at: datetime
     expires_at: datetime
     answers: List[AnswerResponse] = Field(default_factory=list)
+
+
+# VerifyLocationResponse가 QuestionResponse를 앞에서 문자열로 참조하고 있어(위치 신호
+# 응답에 답변 대기 질문을 동봉 — 기능 6) 여기서 전방 참조를 해소한다. 이 줄이 없으면
+# FastAPI가 응답 스키마를 만들 때 전방 참조 미해소로 죽을 수 있다.
+VerifyLocationResponse.model_rebuild()
 
 
 # ──────────────────── Credit + 뱃지 (기능 4 · 11) ────────────────────

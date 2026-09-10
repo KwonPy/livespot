@@ -13,6 +13,7 @@ from app.db.models.user import User
 from app.api.deps import get_current_user_id
 from app.models.schemas import (
     MyReportEntry,
+    QuestionResponse,
     ReportCreate,
     ReportResponse,
     VerifyLocationRequest,
@@ -21,6 +22,8 @@ from app.models.schemas import (
 from app.services.tour_api import TourAPIService
 from app.services.geo import calculate_distance_m
 from app.services import credit as credit_service
+from app.services import presence as presence_service
+from app.services.question_query import fetch_pending_questions
 from app.services.spot_lookup import resolve_spot_names
 
 router = APIRouter()
@@ -161,9 +164,21 @@ async def get_my_reports(
 
 
 @router.post("/verify-location", response_model=VerifyLocationResponse)
-async def verify_location(payload: VerifyLocationRequest):
-    """기능 4(능동적 현장 인증). 자동 알림 설정과 무관하게, 사용자가 상세페이지에서
-    직접 고른 content_id 기준으로만 거리를 검증한다 (GPS만으로 임의 관광지를 골라잡지 않음)."""
+async def verify_location(
+    payload: VerifyLocationRequest,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    """기능 4(능동적 현장 인증) + 기능 6(현장 사용자 신호). 자동 알림 설정과 무관하게,
+    사용자가 상세페이지에서 직접 고른 content_id 기준으로만 거리를 검증한다
+    (GPS만으로 임의 관광지를 골라잡지 않음 — 좌표로 관광지를 추정하면 밀집 지역에서
+    엉뚱한 곳에 인원이 쌓인다).
+
+    기능 6이 여기에 얹혀 있다: 이 호출은 이미 "지금 내가 여기 있다"는 뜻이고 상세페이지
+    진입 시 1회 + Live 화면 GPS 토글 중 3분마다 도는 채널이라, 새 위치 전송 엔드포인트를
+    만들지 않고 반경 판정을 통과한 신호로 presence를 갱신한다. 좌표는 저장하지 않는다 —
+    거리(distance_m)만 남긴다.
+    """
     spot = await tour_service.get_spot_detail(payload.content_id)
     if not spot:
         raise HTTPException(status_code=404, detail="관광지를 찾을 수 없습니다.")
@@ -185,9 +200,31 @@ async def verify_location(payload: VerifyLocationRequest):
     else:
         message = f"현재 위치에서 {int(distance)}m 떨어져 있어요. 관광지 반경 {threshold}m 이내에서만 인증할 수 있습니다."
 
+    # 현장 사용자 기록(기능 6). 반경 밖이면 저장하지 않되 403이 아니라 200 +
+    # presence_registered=false로 표현한다 — 위치 신호는 사용자의 명시적 쓰기 행동이
+    # 아니라 배경 동작이라, 에러를 던지면 앱이 정상 상황을 실패로 표시한다.
+    # DEMO_BYPASS_GPS가 켜져 있으면 제보·답변과 동일하게 반경 밖이어도 기록한다.
+    presence_registered = False
+    pending_questions: List[QuestionResponse] = []
+    if verified:
+        await presence_service.record_presence(
+            db,
+            user_id=user_id,
+            spot_content_id=payload.content_id,
+            distance_m=distance,
+        )
+        presence_registered = True
+        # 답변 대기 질문 동봉: 현장 인증된 사용자만 답변할 수 있으므로, 인증에 실패한
+        # 응답에 질문을 실어봐야 답할 수 없는 목록을 보여주는 셈이 된다.
+        pending_questions = await fetch_pending_questions(
+            db, payload.content_id, settings.PRESENCE_PENDING_QUESTION_LIMIT
+        )
+
     return VerifyLocationResponse(
         verified=verified,
         distance_m=distance,
         threshold_m=threshold,
         message=message,
+        presence_registered=presence_registered,
+        pending_questions=pending_questions,
     )

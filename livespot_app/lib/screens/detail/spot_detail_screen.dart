@@ -6,6 +6,7 @@ import '../../models/live_status.dart';
 import '../../models/congestion_info.dart';
 import '../../models/weather.dart';
 import '../../models/briefing.dart';
+import '../../models/question.dart';
 import '../../config/theme.dart';
 import '../../config/constants.dart';
 import '../../utils/image_url.dart';
@@ -18,6 +19,7 @@ import '../../widgets/quick_report_modal.dart';
 import '../../widgets/crowdedness_badge.dart';
 import '../../widgets/weather_badge.dart';
 import '../../widgets/qa_section.dart';
+import '../../widgets/pending_questions_banner.dart';
 
 class SpotDetailScreen extends ConsumerStatefulWidget {
   final Spot spot;
@@ -40,6 +42,8 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
   int _charIndex = 0;
   LiveStatus? _liveStatus;
   bool _liveStatusLoading = true;
+  // 조회 실패와 "0건 / 0명"을 화면에서 구분하기 위한 플래그. 자세한 이유는 _fetchLiveStatus 주석.
+  bool _liveStatusError = false;
   CongestionInfo? _congestionInfo; // 방문 집중률 "예측" (기능 9)
   bool _congestionLoading = true;
   WeatherInfo? _weather; // 실시간 날씨. null = 로딩 중이거나 조회 자체가 실패한 상태
@@ -56,6 +60,16 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
   bool? _bookmarked; // null = 로딩 전 → 버튼 비활성
   bool _verifyingOnsite = false;
 
+  // 기능 6(현장 사용자 수 집계)의 "답변 유도" 배너 재료. 위치 신호 응답에 실려 온
+  // 대기 질문이며, **presence_registered == true인 응답에서만** 채워진다 — 현장 인증이
+  // 안 된 사용자에게는 그릴 데이터 자체가 존재하지 않는다(빈 목록 → 배너 미노출).
+  List<Question> _pendingQuestions = [];
+
+  // 헤더가 접혀 상단 바가 단색(primaryColor)으로 바뀌면 날씨 배지를 숨긴다 —
+  // 그 자리는 알림·북마크 액션 아이콘과 폭을 다투는 좁은 툴바이기 때문이다.
+  final ScrollController _scrollController = ScrollController();
+  bool _appBarCollapsed = false;
+
   @override
   void initState() {
     super.initState();
@@ -63,6 +77,7 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
       vsync: this,
       duration: const Duration(milliseconds: 50),
     )..addListener(_onTypingTick);
+    _scrollController.addListener(_handleScroll);
 
     _fetchExtraInfo();
     _fetchReports();
@@ -72,6 +87,41 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
     _fetchCongestion();
     _fetchWeather();
     _fetchBriefing();
+    _sendPresenceSignal();
+  }
+
+  // ── 기능 6: 현장 사용자 수 집계의 "위치 신호" ──
+  // 상세페이지 진입 시 1회. **전용 API도 전용 타이머도 없다** — 기존 verify-location
+  // 호출 그 자체가 신호이고, 서버가 부수효과로 presence 1행을 UPSERT한다(Q1-C·Q4-A).
+  //
+  // 배경 동작이므로 실패를 화면에 절대 띄우지 않는다. 위치 권한 거부·GPS 사용 불가·
+  // 반경 밖은 전부 정상 경로다 — 반경 밖은 서버도 403이 아니라 200 + verified:false /
+  // presence_registered:false로 응답한다(P9). 사용자가 누르지도 않은 동작의 실패를
+  // 다이얼로그로 알리면, 정상 상황이 오류로 보고된다.
+  Future<void> _sendPresenceSignal() async {
+    try {
+      final position = await _locationService.getCurrentPosition();
+      final result = await ApiService().verifyLocation(
+        widget.spot.contentId,
+        position.latitude,
+        position.longitude,
+      );
+      if (!mounted) return;
+      // 반경 밖이면 목록을 비운다. 이때 서버의 pending_questions도 빈 배열이지만,
+      // 앱에서도 명시적으로 비워 "현장에 없는 사람에게 답변 버튼이 보이는" 경로를 없앤다.
+      // (live_screen.dart의 `verify.presenceRegistered ? ... : []`와 같은 처리 —
+      // 답변 후 재신호가 실패하면 이미 답변한 질문이 배너에 남는 문제를 막는다.)
+      if (!result.presenceRegistered) {
+        setState(() => _pendingQuestions = []);
+        return;
+      }
+      setState(() => _pendingQuestions = result.pendingQuestions);
+      // 방금 등록된 내 신호가 "현장 N명"에 반영되도록 상태를 한 번 더 읽는다
+      // (initState의 _fetchLiveStatus는 신호보다 먼저 끝난다).
+      await _fetchLiveStatus();
+    } catch (_) {
+      // 신호 실패는 알리지 않는다(위 주석). 현장 인원에 내가 안 잡힐 뿐이다.
+    }
   }
 
   Future<void> _fetchExtraInfo() async {
@@ -86,14 +136,28 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
     }
   }
 
-  // LIVE 상태창(기능 5). 매번 실시간 계산된 값이라 방금 올린 제보가 바로 반영된다.
+  // LIVE 상태창(기능 5·6). 매번 실시간 계산된 값이라 방금 올린 제보·위치 신호가 바로 반영된다.
+  //
+  // 실패를 _liveStatus = null로만 두면 화면에서 "0건 / 0명"으로 그려진다 — 조회 실패가
+  // "아무 일도 없음"으로 둔갑한다. 특히 현장 인원은 0이 정상값이라 둘을 구분할 수 없으면
+  // 사람이 화면만 보고는 원인을 알 수 없다. 실패 여부를 따로 들고 다닌다.
   Future<void> _fetchLiveStatus() async {
     if (mounted) setState(() => _liveStatusLoading = true);
     try {
       final status = await ApiService().fetchLiveStatus(widget.spot.contentId);
-      if (mounted) setState(() => _liveStatus = status);
+      if (mounted) {
+        setState(() {
+          _liveStatus = status;
+          _liveStatusError = false;
+        });
+      }
     } catch (_) {
-      if (mounted) setState(() => _liveStatus = null);
+      if (mounted) {
+        setState(() {
+          _liveStatus = null;
+          _liveStatusError = true;
+        });
+      }
     } finally {
       if (mounted) setState(() => _liveStatusLoading = false);
     }
@@ -290,13 +354,25 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
   @override
   void dispose() {
     _typingController.dispose();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  // SliverAppBar(expandedHeight: 280)가 접히는 지점(= 280 - 툴바 높이)을 지나면
+  // 상단 바가 단색으로 바뀐다. 배지가 사라지는 시점을 그 전환과 맞추기 위해
+  // 여유 20px을 더 두고 판정한다.
+  void _handleScroll() {
+    final collapsed = _scrollController.hasClients && _scrollController.offset > (280 - kToolbarHeight - 20);
+    if (collapsed != _appBarCollapsed) {
+      setState(() => _appBarCollapsed = collapsed);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: CustomScrollView(
+        controller: _scrollController,
         slivers: [
           _buildSliverAppBar(),
           SliverToBoxAdapter(
@@ -304,6 +380,15 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildLiveStatusSection(),
+                // 기능 6 Q6-A: 현장 인증에 성공한 사용자에게만 답변 대기 질문을 띄운다.
+                // 목록이 비어 있으면 위젯이 스스로 SizedBox.shrink()로 접힌다.
+                PendingQuestionsBanner(
+                  questions: _pendingQuestions,
+                  spotName: widget.spot.title,
+                  // 답변이 등록되면 신호를 다시 보내 대기 목록을 서버 기준으로 갱신하고
+                  // (방금 답한 질문은 답변 0건 조건에서 빠진다) 현장 인원도 새로 읽는다.
+                  onAnswered: _sendPresenceSignal,
+                ),
                 const Divider(height: 1),
                 _buildCongestionSection(),
                 const Divider(height: 1),
@@ -387,7 +472,7 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16, shadows: [Shadow(color: Colors.black45, blurRadius: 8)]),
               ),
             ),
-            if (_weather != null) ...[
+            if (_weather != null && !_appBarCollapsed) ...[
               const SizedBox(width: 8),
               WeatherBadge(weather: _weather!, onImage: true, compact: true),
             ],
@@ -417,9 +502,11 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
   Widget _buildLiveStatusSection() {
     final isLive = _liveStatus?.isLive ?? false;
     final reportCount = _liveStatus?.recentReportCount ?? 0;
+    final onsiteCount = _liveStatus?.onsiteUserCount ?? 0;
+    // 조회에 실패했으면 숫자를 쓰지 않는다. "0명"으로 적으면 알지도 못하는 사실을 주장하게 된다.
+    final failed = _liveStatusError && _liveStatus == null;
     // "최근 활동"은 실제 제보(reports) 상위 3건을 그대로 재사용한다 — 질문/답변(기능 7)은
-    // 아직 없으므로 REPORT 종류만 존재한다. presence/questions가 없어 "현장 인원"·"질문"
-    // 통계는 숨기고, 정직하게 확인 가능한 "제보" 건수만 보여준다.
+    // 아직 없으므로 REPORT 종류만 존재한다.
     final recentActivities = _reports.take(3).toList();
 
     return Container(
@@ -438,17 +525,48 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
               ] else
                 Text('오프라인', style: TextStyle(color: Colors.grey[400], fontWeight: FontWeight.w600, fontSize: 14)),
               const Spacer(),
-              Text(
-                _liveStatusLoading ? '불러오는 중...' : '최근 ${AppConstants.liveWindowHours}시간 기준',
-                style: TextStyle(fontSize: 11, color: Colors.grey[400]),
-              ),
+              // 예전에는 여기에 "최근 2시간 기준"이 있었다. 아래 통계 행에 시간창이 다른
+              // 값(현장 인원 = 30분)이 합류하면서, 헤더의 한 문장이 두 숫자를 다 대표하는
+              // 것처럼 보이게 됐다 — 기준은 칸마다 따로 적고 헤더에서는 뺀다(P15).
+              if (_liveStatusLoading)
+                Text('불러오는 중...', style: TextStyle(fontSize: 11, color: Colors.grey[400]))
+              else if (failed)
+                Row(
+                  children: [
+                    Icon(Icons.error_outline, size: 13, color: Colors.red.shade300),
+                    const SizedBox(width: 4),
+                    Text('상태를 불러오지 못했어요',
+                        style: TextStyle(fontSize: 11, color: Colors.red.shade400, fontFamily: 'Pretendard')),
+                  ],
+                ),
             ],
           ),
           const SizedBox(height: 12),
-          // 통계 행 — 현장 인원/질문 수는 아직 실제 데이터가 없어 표시하지 않는다.
+          // 통계 행 — 두 칸의 **시간창이 서로 다르다**(제보 2시간 / 현장 30분). 한 줄에
+          // 나란히 두되 각 칸에 기준을 명시해 같은 시간창의 값처럼 읽히지 않게 한다(P15).
+          // "현장"은 접속자 수가 아니라 "최근 30분 안에 여기서 위치 신호를 보낸 사람 수"다 —
+          // "현재 N명"·"실시간 접속"으로 쓰지 않는다(P6).
           Row(
             children: [
-              _buildLiveStat(Icons.edit_note, '제보', '$reportCount건', Colors.green),
+              _buildLiveStat(
+                Icons.edit_note,
+                '제보',
+                failed ? '—' : '$reportCount건',
+                Colors.green,
+                note: '최근 ${AppConstants.liveWindowHours}시간 기준',
+              ),
+              const SizedBox(width: 10),
+              _buildLiveStat(
+                Icons.person_pin_circle_outlined,
+                '현장',
+                failed ? '—' : '$onsiteCount명',
+                LiveSpotTheme.primaryColor,
+                note: '최근 ${AppConstants.presenceWindowMinutes}분 기준',
+                tooltip: failed
+                    ? '현장 인원을 불러오지 못했어요.'
+                    : '최근 ${AppConstants.presenceWindowMinutes}분 기준 $onsiteCount명이 '
+                        '이 관광지에서 위치를 인증했어요. 지금 접속 중인 사람 수가 아닙니다.',
+              ),
             ],
           ),
           if (recentActivities.isNotEmpty) ...[
@@ -477,21 +595,42 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
     );
   }
 
-  Widget _buildLiveStat(IconData icon, String label, String value, Color color) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(color: color.withOpacity(0.06), borderRadius: BorderRadius.circular(10)),
-        child: Column(
-          children: [
-            Icon(icon, color: color, size: 20),
-            const SizedBox(height: 4),
-            Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color)),
-            Text(label, style: TextStyle(fontSize: 10, color: Colors.grey[500])),
+  /// LIVE 통계 한 칸. [note]는 그 칸만의 시간창 표기다 — 칸마다 기준이 다르므로
+  /// (제보 2시간 / 현장 30분) 헤더가 아니라 여기에 붙인다(P15).
+  Widget _buildLiveStat(
+    IconData icon,
+    String label,
+    String value,
+    Color color, {
+    String? note,
+    String? tooltip,
+  }) {
+    Widget cell = Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(10)),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(height: 4),
+          Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color)),
+          Text(label, style: TextStyle(fontSize: 10, color: Colors.grey[500])),
+          if (note != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              note,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 9, color: Colors.grey[400]),
+            ),
           ],
-        ),
+        ],
       ),
     );
+    if (tooltip != null) {
+      cell = Tooltip(message: tooltip, child: cell);
+    }
+    return Expanded(child: cell);
   }
 
   // ── 📊 방문 집중률 예측 (기능 9, 한국관광공사 TatsCnctrRateService) ──

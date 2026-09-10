@@ -6,3 +6,4 @@ from app.db.models.question import Question  # noqa: F401
 from app.db.models.answer import Answer  # noqa: F401
 from app.db.models.credit_ledger import CreditLedger  # noqa: F401
 from app.db.models.bookmark import Bookmark  # noqa: F401
+from app.db.models.presence import Presence  # noqa: F401

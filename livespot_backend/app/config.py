@@ -35,6 +35,21 @@ class Settings(BaseSettings):
     # LIVE가 아니라고 판정한다 (과거 제보로 부풀리지 않기 위함).
     LIVE_WINDOW_HOURS: int = 2
 
+    # ── 현장 사용자 수 집계 (기능 6) ──
+    # "현장 사용자" = 마지막 위치 신호(presences.last_seen)가 이 시간 안에 있는 사용자.
+    # 연결 상태가 아니라 타임스탬프로 판정하므로, 앱이 꺼져 있어도 30분 안이면 집계된다.
+    # 앱의 constants.dart::presenceWindowMinutes와 짝이다 — 어긋나면 앱과 서버가 서로 다른
+    # 기준으로 같은 숫자를 설명하게 된다(앱 문구: "최근 30분 기준 N명").
+    PRESENCE_WINDOW_MINUTES: int = 30
+
+    # presences 행을 실제로 DELETE하는 기준(프라이버시 약속). 별도 배치를 두지 않고,
+    # 위치 신호가 들어올 때마다 같은 트랜잭션에서 이 시간이 지난 행을 지운다.
+    PRESENCE_RETENTION_HOURS: int = 24
+
+    # 위치 신호 응답에 함께 실어 보내는 "답변 대기 질문"의 최대 건수. 푸시가 없는 웹에서
+    # 답변을 유도하는 사실상의 주 전달 경로라 응답에 동봉하지만, 배너 하나에 들어갈 만큼만 준다.
+    PRESENCE_PENDING_QUESTION_LIMIT: int = 5
+
     # 노트북(WiFi/유선) 데모 시연용 우회 스위치. 켜면 GPS 범위를 벗어나도 제보를 거부하지 않고
     # gps_verified=false로 저장한다. 실서비스 배포 시 반드시 False로 둘 것.
     DEMO_BYPASS_GPS: bool = False

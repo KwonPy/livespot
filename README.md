@@ -27,9 +27,9 @@
 | 🔥 **핫스팟 랭킹** | 실제 제보가 있는 곳 우선, 부족하면 집중률 예측으로 채움 | ✅ |
 | 💬 **현장 Q&A** | 멀리 있는 사람이 묻고, **현장 인증된 사람만** 답한다 (TTL 2시간) | ✅ |
 | 🔔 **제보 유도 알림** | 알림 켠 관광지 50m 안에 들어오면 알림 (앱 실행 중일 때만) | ✅ |
-| 🌤️ **날씨** | OpenWeatherMap 기반 실시간 날씨 배지 (상세페이지 헤더) | ✅ |
+| 🌤️ **날씨** | Open-Meteo 기반 실시간 날씨 배지, API 키 불필요 (상세페이지 헤더) | ✅ |
 | 🤖 **AI 브리핑** | Gemini 기반 현장 요약. 예측(집중률)·실측(제보)을 섞지 않고 별도 라벨로 제시 | ✅ |
-| 💎 **Credit 보상** | 제보 +30 / 답변 +50 | ⬜ |
+| 💎 **Credit 보상** | 제보 +10 / 답변 +5. 누적 Credit에 따라 새싹🌱~마스터👑 5단계 뱃지 자동 부여 (현금성 리워드·교환은 범위 밖) | ✅ |
 | 🔐 **카카오 로그인** | 현재는 고정 `test_user`로 동작 | ⬜ |
 
 ---
@@ -43,7 +43,7 @@
 | DB | SQLAlchemy 2.0 + Alembic — 로컬 SQLite, 배포 PostgreSQL |
 | 지도 | MapTiler SDK JS (`web/index.html`에서 CDN 로드) |
 | 공공데이터 | TourAPI(KorService2), 관광지 집중률(TatsCnctrRateService), 관광사진 갤러리 |
-| AI · 날씨 | Google Gemini, OpenWeatherMap(날씨 연동 완료) |
+| AI · 날씨 | Google Gemini, Open-Meteo(날씨 연동 완료, API 키 불필요) |
 | 인증 | Firebase Auth + 카카오 *(예정)* |
 | 배포 | Railway — 백엔드(FastAPI, Postgres) + 프론트(Flutter 웹, nginx) 각각 컨테이너로 배포 |
 
@@ -80,7 +80,7 @@ livespot/
 
 ### 필요한 것
 - Python 3.11+ / Flutter 3.x
-- API 키: **TourAPI**(필수), MapTiler, OpenWeatherMap, Gemini (선택)
+- API 키: **TourAPI**(필수), MapTiler, Gemini (선택) — 날씨(Open-Meteo)는 키 불필요
 
 ### 백엔드
 ```powershell
