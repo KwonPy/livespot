@@ -1,22 +1,23 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../config/theme.dart';
 import '../../config/constants.dart';
 import '../../services/api_service.dart';
 import '../../services/location_service.dart';
 import '../../models/spot.dart';
 import '../../models/hotspot_entry.dart';
-import '../../models/question.dart';
+import '../../models/my_report_entry.dart';
+import '../../models/my_answer_entry.dart';
 import '../../utils/formatters.dart';
 import '../../utils/image_url.dart';
 import '../../widgets/quick_report_modal.dart';
 import '../../widgets/qa_section.dart';
 import '../../widgets/global_qa_list.dart';
 import '../../widgets/gps_verified_badge.dart';
-import '../../widgets/pending_questions_banner.dart';
 import '../detail/spot_detail_screen.dart';
 
-enum _GpsMatchStatus { idle, loading, matched, none, error }
+enum _GpsMatchStatus { idle, loading, matched, none, error, selecting }
 
 /// Live 페이지. 구조는 정책에 따라 고정된다.
 ///   GPS OFF                 : HOT SPOTS → 전체 LIVE Q&A
@@ -40,6 +41,9 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
   _GpsMatchStatus _gpsMatchStatus = _GpsMatchStatus.idle;
   Spot? _gpsMatchedSpot;
   String? _gpsMatchError;
+  // 근처 후보가 여럿이고 내 최근 활동과도 겹치지 않을 때(_GpsMatchStatus.selecting)
+  // 사용자가 직접 고를 수 있도록 보여주는 목록.
+  List<Spot> _gpsCandidates = [];
 
   // ── 기능 6(현장 사용자 수 집계) ──
   // 아래 3분 타이머의 verify-location 호출이 곧 위치 신호다(Q1-C). 신규 API도 신규
@@ -49,8 +53,16 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
   // 0    = 서버가 "최근 30분 안에 아무도 없었다"고 답한 값 → "0명"으로 그린다.
   // 이 둘을 뭉개면 조회 실패가 "0명"으로 보인다.
   int? _onsiteUserCount;
-  // 위치 신호 응답에 실려 온 답변 대기 질문(Q6-A). presence_registered == true일 때만 채운다.
-  List<Question> _pendingQuestions = [];
+
+  // 2026-09-13(015): 답변 대기 질문 배너(`PendingQuestionsBanner`)를 이 화면에서 제거했다.
+  // 그 배너가 그리던 집합은 바로 아래 QaSection(activeOnly: true)의 부분집합이라
+  // (배너 = fetch_spot_questions(pending_only, active_only, limit N) ⊂ QaSection의
+  // active_only 전체) 정보 손실 없이 중복만 걷어낸 것이다. 그래서 배너에 넘기던
+  // `_pendingQuestions` 필드도 함께 지웠다 — 남기면 죽은 코드가 된다.
+  //
+  // ⚠️ 위젯 파일(`widgets/pending_questions_banner.dart`)과 서버 응답 필드
+  // (`verify-location`의 `pending_questions`)는 **그대로 살아 있다.**
+  // `spot_detail_screen.dart`가 계속 쓴다.
 
   // 현장 인증 상태는 영구적이지 않고 일정 시간 동안만 유효하다(정책) — GPS 연동이
   // 켜져 있는 동안 주기적으로 인증을 다시 확인해, 사용자가 자리를 뜨면 "내 현장 Q&A"가
@@ -95,15 +107,17 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
         _gpsMatchStatus = _GpsMatchStatus.idle;
         _gpsMatchedSpot = null;
         _gpsMatchError = null;
+        _gpsCandidates = [];
         _onsiteUserCount = null;
-        _pendingQuestions = [];
       });
     }
   }
 
   // GPS 연동: 현재 위치에서 실제로 100m+오차(150m) 이내로 인증되는 관광지가 있을 때만
-  // "내 현장 Q&A"를 노출한다. 여러 관광지가 주변에 있어도 임의로 아무거나 고르지 않고,
-  // 가장 가까운 후보를 서버 인증(verify-location)으로 재확인한다.
+  // "내 현장 Q&A"를 노출한다. 여러 관광지가 주변에 있으면 임의로 아무거나 고르지 않는다.
+  // 후보가 하나뿐이면 모호함이 없으니 바로 서버 인증(verify-location)으로 넘기고,
+  // 여럿이면 내 최근 제보·답변 이력과 겹치는 곳이 있는지 먼저 보고, 그마저 없으면
+  // 사용자가 직접 고르게 한다(_GpsMatchStatus.selecting).
   Future<void> _refreshGpsMatch({bool silent = false}) async {
     if (!silent && mounted) setState(() => _gpsMatchStatus = _GpsMatchStatus.loading);
     try {
@@ -113,32 +127,92 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
         if (mounted) {
           setState(() {
             _gpsMatchStatus = _GpsMatchStatus.none;
+            _gpsCandidates = [];
             _onsiteUserCount = null;
-            _pendingQuestions = [];
           });
         }
         return;
       }
-      final candidate = nearby.first;
-      // 이 호출이 곧 위치 신호다 — 서버가 반경 판정을 통과시키면 presence를 갱신하고
-      // 답변 대기 질문을 함께 실어 보낸다(기능 6, Q1-C).
+      if (nearby.length == 1) {
+        await _verifyCandidate(nearby.first, position);
+        return;
+      }
+      final matched = await _matchByRecentActivity(nearby);
+      if (matched != null) {
+        await _verifyCandidate(matched, position);
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _gpsMatchStatus = _GpsMatchStatus.selecting;
+        _gpsCandidates = nearby;
+        _gpsMatchedSpot = null;
+        _onsiteUserCount = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _gpsMatchStatus = _GpsMatchStatus.error;
+        _gpsMatchedSpot = null;
+        _gpsCandidates = [];
+        _onsiteUserCount = null;
+        _gpsMatchError = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  // 근처 후보 중 내가 최근에 제보했거나 질문에 답변한 관광지가 있으면 그곳으로
+  // 특정한다 — 앱이 위치를 스스로 판정하는 게 아니라 "어느 후보로 인증을 시도할지"만
+  // 좁히는 것이고, 실제 인증은 뒤이은 verify-location이 그대로 담당한다.
+  // 조회 실패는 "이력 없음"과 동일하게 취급해 사용자가 직접 고르는 안전한 쪽으로 넘긴다.
+  Future<Spot?> _matchByRecentActivity(List<Spot> candidates) async {
+    final candidateIds = candidates.map((s) => s.contentId).toSet();
+    DateTime? bestTime;
+    String? bestId;
+    try {
+      final reports = await _apiService.fetchMyReports();
+      final answers = await _apiService.fetchMyAnswers();
+      for (final MyReportEntry report in reports) {
+        if (!candidateIds.contains(report.spotContentId)) continue;
+        if (bestTime == null || report.createdAt.isAfter(bestTime)) {
+          bestTime = report.createdAt;
+          bestId = report.spotContentId;
+        }
+      }
+      for (final MyAnswerEntry answer in answers) {
+        if (!candidateIds.contains(answer.spotContentId)) continue;
+        if (bestTime == null || answer.createdAt.isAfter(bestTime)) {
+          bestTime = answer.createdAt;
+          bestId = answer.spotContentId;
+        }
+      }
+    } catch (_) {
+      return null;
+    }
+    if (bestId == null) return null;
+    return candidates.firstWhere((s) => s.contentId == bestId);
+  }
+
+  // 확정된 후보 하나에 대해 서버 인증(verify-location)을 시도한다. 이 호출이 곧
+  // 위치 신호다 — 서버가 반경 판정을 통과시키면 presence를 갱신하고 답변 대기
+  // 질문을 함께 실어 보낸다(기능 6, Q1-C).
+  Future<void> _verifyCandidate(Spot candidate, Position position) async {
+    try {
       final verify = await _apiService.verifyLocation(candidate.contentId, position.latitude, position.longitude);
       if (!mounted) return;
       if (verify.verified) {
         setState(() {
           _gpsMatchStatus = _GpsMatchStatus.matched;
           _gpsMatchedSpot = candidate;
-          // presence가 실제로 등록된 경우에만 대기 질문을 담는다. 인증되지 않은
-          // 사용자에게 답변 버튼이 보이는 경로를 데이터 단계에서 없앤다.
-          _pendingQuestions = verify.presenceRegistered ? verify.pendingQuestions : [];
+          _gpsCandidates = [];
         });
         await _fetchOnsiteCount(candidate.contentId);
       } else {
         setState(() {
           _gpsMatchStatus = _GpsMatchStatus.none;
           _gpsMatchedSpot = null;
+          _gpsCandidates = [];
           _onsiteUserCount = null;
-          _pendingQuestions = [];
         });
       }
     } catch (e) {
@@ -146,8 +220,25 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
       setState(() {
         _gpsMatchStatus = _GpsMatchStatus.error;
         _gpsMatchedSpot = null;
+        _gpsCandidates = [];
         _onsiteUserCount = null;
-        _pendingQuestions = [];
+        _gpsMatchError = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  // 사용자가 선택 목록에서 후보 하나를 직접 골랐을 때. 목록을 보여준 시점과 탭한
+  // 시점 사이에 위치가 바뀔 수 있으니 위치를 다시 읽은 뒤 인증을 시도한다.
+  Future<void> _onSelectGpsCandidate(Spot candidate) async {
+    if (mounted) setState(() => _gpsMatchStatus = _GpsMatchStatus.loading);
+    try {
+      final position = await _locationService.getCurrentPosition();
+      await _verifyCandidate(candidate, position);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _gpsMatchStatus = _GpsMatchStatus.error;
+        _gpsCandidates = [];
         _gpsMatchError = e.toString().replaceFirst('Exception: ', '');
       });
     }
@@ -313,13 +404,13 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
                 ],
               ),
             ),
-            // Q6-A: 답변 대기 질문 배너. 위치 신호 응답에 실려 온 목록을 그대로 쓴다.
-            PendingQuestionsBanner(
-              questions: _pendingQuestions,
-              spotName: spot.title,
-              // 답변하면 신호를 다시 보내 대기 목록·인원을 서버 기준으로 갱신한다.
-              onAnswered: () => _refreshGpsMatch(silent: true),
-            ),
+            // 2026-09-13(015): 여기 있던 답변 대기 질문 배너를 제거했다. 바로 아래
+            // QaSection이 같은 질문들을 이미 보여주고 있어(배너 집합 ⊂ QaSection 집합)
+            // 같은 화면에 같은 질문이 두 번 나오던 중복이었다. 이 자리에 배너를 다시
+            // 넣지 말 것.
+            //
+            // 기능 8의 알림 다이얼로그는 이 화면 안에 있지 않다 — `app.dart`의
+            // MaterialApp.builder가 Navigator 위에 모달로 띄운다.
             QaSection(spotContentId: spot.contentId, spotName: spot.title, showAskButton: false, activeOnly: true),
           ],
         );
@@ -337,6 +428,50 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
                 Text('현재 위치 확인 중...', style: TextStyle(fontFamily: 'Pretendard')),
               ],
             ),
+          ),
+        );
+      case _GpsMatchStatus.selecting:
+        return Container(
+          margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey.shade200)),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '근처에 관광지가 여러 곳 있어요. 지금 계신 곳을 골라주세요.',
+                style: TextStyle(fontFamily: 'Pretendard', fontSize: 13, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              ..._gpsCandidates.map((spot) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: OutlinedButton(
+                      onPressed: () => _onSelectGpsCandidate(spot),
+                      style: OutlinedButton.styleFrom(
+                        alignment: Alignment.centerLeft,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        side: BorderSide(color: Colors.grey.shade300),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              spot.title,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontFamily: 'Pretendard', fontWeight: FontWeight.w600, color: Colors.black87),
+                            ),
+                          ),
+                          if (spot.dist != null)
+                            Text(
+                              '${spot.dist!.round()}m',
+                              style: TextStyle(fontFamily: 'Pretendard', fontSize: 12, color: Colors.grey[600]),
+                            ),
+                        ],
+                      ),
+                    ),
+                  )),
+            ],
           ),
         );
       case _GpsMatchStatus.none:

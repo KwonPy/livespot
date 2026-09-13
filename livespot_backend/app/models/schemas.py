@@ -226,6 +226,88 @@ class NotificationSettingResponse(BaseModel):
     push_enabled: bool
 
 
+# ──────────────────── 질문/답변 알림 (기능 8) ────────────────────
+# 위 spot_notification_settings(관광지별, 기능 3)와는 **완전히 별개**다. 기능 8 알림에는
+# 2026-09-13부터 **on/off 설정이 전혀 없다**(015 N1·N2) — 항상 간다.
+#
+# 만료는 상태 컬럼이 아니라 조회 시점 계산이고, **기준은 알림이 아니라 연결된 질문**이다
+# (P24, 2026-09-10 방향 수정). 알림 전용 TTL(NOTIFICATION_TTL_MINUTES=30)은 폐기됐다.
+# 이제 목록·unread_count에서 빠지는 조건은 "그 질문의 created_at + 2시간(QUESTION_TTL_HOURS)이
+# 지났는가" 하나뿐이다. expires_at을 함께 내려보내 앱이 서버와 같은 기준으로 남은 시간을
+# 그릴 수 있게 한다. 읽음(read_at)은 이 유효시간과 무관하게 별도로 관리된다.
+
+# 두 값 모두 실제로 응답에 실린다(015 2-2절 정정). 2026-09-13 오전 한때 NEW_QUESTION 생성이
+# 중단되고 `active_join()`이 타입 필터로 걸러냈지만, 같은 날 되돌렸다 — 그 필터가 실시간
+# 모달의 데이터 소스이기도 했다. 앱은 두 분기를 모두 그린다.
+NotificationType = Literal["NEW_QUESTION", "NEW_ANSWER"]
+
+
+class NotificationEntry(BaseModel):
+    """GET /api/notifications 한 줄. type은 두 종류 모두 내려간다(015 2-2절 Q1=D).
+
+    - NEW_ANSWER: 내가 올린 질문에 답변이 달림 → 답변 확인하러 가기
+    - NEW_QUESTION: 내가 최근 30분 안에 GPS 인증한 관광지에 새 질문이 올라옴 → 답변하러 가기
+      (수신자는 질문자 본인이 아니므로 "내가 쓴 질문" 탭에는 나타나지 않는다. 이 항목이
+      쓰이는 곳은 실시간 모달과 미읽음 배지이지, 사용자에게 보여주는 목록 페이지가 아니다 —
+      그 페이지는 015에서 없앤 채로 둔다.)
+
+    question_id가 항상 채워지므로 앱은 탭 시 해당 질문으로 이동하면 된다. 이 값은 "내가
+    쓴 질문" 목록에 안읽음 표시를 얹을 때의 매칭 키이기도 하다 — `is_read`와 함께 쓴다.
+    (Optional로 둔 것은 향후 질문과 무관한 알림 종류가 생길 여지 때문이고,
+    현재 구현에서 null이 되는 경로는 없다.)
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    type: NotificationType
+    spot_content_id: str
+    # TourAPI에서 조회한 관광지 이름. 조회 실패·삭제 시 null (알림 자체는 목록에서 빠지지 않는다).
+    spot_name: Optional[str] = None
+    question_id: Optional[str] = None
+    body: str  # 서버가 코드 상수로 조립한 표시 문구. 앱은 그대로 그린다.
+    created_at: datetime  # naive UTC
+    # **연결된 질문의 created_at + 2시간**이다(알림 자신의 created_at 기준이 아니다).
+    # 이 시각이 지나면 목록에서 사라진다.
+    expires_at: datetime
+    read_at: Optional[datetime] = None  # 아직 안 읽었으면 null
+    is_read: bool  # read_at is not None 과 동치. 앱이 null 체크를 안 해도 되게 함께 내려준다
+
+
+class NotificationListResponse(BaseModel):
+    """GET /api/notifications. **연결된 질문이 아직 2시간 유효한** 알림만 담는다(P24).
+
+    unread_count도 같은 기준이다 — 배지 숫자와 목록 길이가 어긋나면 "안 읽은 알림 3건"인데
+    목록이 비어 있는 상태가 된다.
+
+    `ttl_minutes` 필드는 2026-09-10 방향 수정으로 **삭제됐다.** 알림에 고정 TTL이 없어져
+    내려보낼 값 자체가 없다 — 남은 시간은 항목별 `expires_at`으로만 알 수 있다.
+    """
+
+    items: List[NotificationEntry] = Field(default_factory=list)
+    unread_count: int
+
+
+class NotificationReadResponse(BaseModel):
+    """POST /api/notifications/{id}/read · POST /api/notifications/read-all 공통 응답.
+
+    멱등이다 — 이미 읽은 알림을 다시 읽음 처리해도 200이고 updated_count만 0이 된다.
+    """
+
+    updated_count: int  # 이번 호출로 실제 read_at이 채워진 건수
+    unread_count: int  # 처리 후 남은 미읽음 수(만료 제외). 앱이 배지를 바로 갱신할 수 있게
+
+
+# `PushSettingsResponse` / `PushSettingsUpdate`(기능 8 전역 알림 스위치)는 **2026-09-13에
+# 삭제됐다**(015 N1·N2). 엔드포인트 `GET/POST /api/notifications/push-settings`,
+# 서비스 함수 `get/set_push_enabled`, 모델 `UserNotificationSetting`, 테이블
+# `user_notification_settings`(드롭 마이그레이션 `b7f3c1e9a204`), Dart의 `PushSettings`까지
+# 한 세트로 제거했다. 알림은 이제 설정 없이 항상 간다.
+#
+# 바로 위의 `NotificationSettingUpsert`/`NotificationSettingResponse`는 **기능 3의
+# 관광지별 제보 유도 알림**이라 이름이 비슷할 뿐 별개다 — 그건 살아 있다.
+
+
 # ──────────────────── LIVE 상태창 (기능 5 · 6) ────────────────────
 # 실제 제보(reports)·현장 신호(presences) 기반으로 매번 실시간 계산한다. 서로 다른 세 개의
 # 시간창이 한 응답에 들어 있으므로(최근 2시간 / 당일 KST / 최근 30분) 앱은 각 숫자 옆에

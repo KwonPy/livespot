@@ -5,6 +5,7 @@ import '../../config/theme.dart';
 import '../../models/activity_counts.dart';
 import '../../models/credit_summary.dart';
 import '../../services/api_service.dart';
+import '../../services/notification_service.dart';
 import '../../widgets/credit_badge.dart';
 import 'bookmarks_screen.dart';
 import 'credit_ledger_screen.dart';
@@ -96,7 +97,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         });
         // 저장된 테스트유저를 복원했다면 그 사람 기준으로 크레딧을 다시 읽는다.
         // (initState의 첫 조회는 헤더가 붙기 전에 나갔을 수 있다.)
-        if (saved != null) _reloadStats();
+        // 알림도 마찬가지다 — 앱 시작 직후의 첫 폴링은 기본 test_user로 나갔다.
+        if (saved != null) {
+          _reloadStats();
+          NotificationService().resetForUserSwitch();
+        }
       }
     } finally {
       if (mounted) setState(() => _loadingTestUsers = false);
@@ -113,6 +118,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // 크레딧은 사용자별로 갈린다 — 전환했으면 반드시 다시 읽는다.
     // (로그인이 없는 지금, 사용자별 분리를 시연하는 수단이 이 드롭다운이다.)
     _reloadStats();
+    // 알림도 사용자별로 갈린다. 지우지 않으면 이전 사용자의 배지가 남고, 새 사용자의
+    // 미읽음 수가 "갑자기 늘어난 것"으로 보여 배너가 엉뚱하게 뜬다. 기능 8의 다인
+    // 시연이 정확히 이 드롭다운으로 이뤄지므로(계약서 7절) 여기가 필수 연결 지점이다.
+    NotificationService().resetForUserSwitch();
     final nickname = _testUsers.firstWhere((u) => u['id'] == userId, orElse: () => {'nickname': userId})['nickname'];
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('테스트 유저 전환: $nickname', style: const TextStyle(fontFamily: 'Pretendard'))),
@@ -393,11 +402,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildMenuSection() {
     final menuItems = [
       {'icon': Icons.edit_note, 'title': '내 제보', 'subtitle': '작성한 현장 제보 관리', 'onTap': _openMyReports},
-      {'icon': Icons.question_answer_outlined, 'title': '내 Q&A', 'subtitle': '질문 및 답변 이력', 'onTap': _openMyQna},
+      // 2026-09-12 사용자 지침: 알림 화면(질문/답변 알림 + Push 설정)을 내 Q&A로
+      // 통합했다 — 어차피 질문/답변 목록을 보여주는 화면이라 하나로 합친다.
+      // 'badge' 항목은 미읽음 수를 오른쪽에 그리라는 표시다.
+      // 2026-09-13 사용자 지침: 부제를 "질문·답변 이력"만 남긴다 — 015에서 "알림"
+      // 탭이 사라진 뒤로 "및 알림"이라는 문구가 실제 화면 구성과 어긋나 있었다.
+      {
+        'icon': Icons.question_answer_outlined,
+        'title': '내 Q&A',
+        'subtitle': '내 질문·답변 이력',
+        'onTap': _openMyQna,
+        'badge': true,
+      },
       {'icon': Icons.stars_rounded, 'title': 'Credit 내역', 'subtitle': '포인트 획득/사용 이력', 'onTap': _openCreditLedger},
       {'icon': Icons.bookmark_outline, 'title': '북마크', 'subtitle': '저장한 관광지', 'onTap': _openBookmarks},
-      {'icon': Icons.gps_fixed, 'title': 'GPS 인증 설정', 'subtitle': '위치 인증 및 알림 설정'},
-      {'icon': Icons.notifications_outlined, 'title': '알림 설정', 'subtitle': 'Push 알림 관리'},
       {'icon': Icons.help_outline, 'title': '고객센터', 'subtitle': '문의 및 도움말'},
       {'icon': Icons.info_outline, 'title': '앱 정보', 'subtitle': 'LiveSpot v1.0.0'},
     ];
@@ -423,7 +441,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               title: Text(item['title'] as String, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
               subtitle: Text(item['subtitle'] as String, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-              trailing: Icon(Icons.chevron_right, color: Colors.grey[300]),
+              trailing: item['badge'] == true
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _buildUnreadBadge(),
+                        Icon(Icons.chevron_right, color: Colors.grey[300]),
+                      ],
+                    )
+                  : Icon(Icons.chevron_right, color: Colors.grey[300]),
               // 아직 연결되지 않은 메뉴는 onTap이 없다 — 눌러도 아무 일이 없는 대신
               // 리플조차 없어서 "죽은 메뉴"임이 드러난다.
               onTap: onTap,
@@ -432,6 +458,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ]);
         }).toList(),
       ),
+    );
+  }
+
+  /// 미읽음 알림 배지. 전역 알림 서비스를 구독하므로 이 화면에 머무는 동안에도 실시간으로
+  /// 숫자가 갱신된다(WebSocket, 끊기면 7초 폴백 폴링). 0건이면 아무것도 그리지 않는다 —
+  /// "0"을 띄우면 알림이 온 것처럼 보인다.
+  Widget _buildUnreadBadge() {
+    return ListenableBuilder(
+      listenable: NotificationService(),
+      builder: (context, _) {
+        final count = NotificationService().unreadCount;
+        if (count == 0) return const SizedBox.shrink();
+        return Container(
+          margin: const EdgeInsets.only(right: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+          decoration: BoxDecoration(color: const Color(0xFFFF1744), borderRadius: BorderRadius.circular(10)),
+          child: Text(
+            count > 99 ? '99+' : '$count',
+            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+          ),
+        );
+      },
     );
   }
 

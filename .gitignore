@@ -9,3 +9,8 @@ livespot_backend/diag1.txt
 # OS
 .DS_Store
 Thumbs.db
+
+# agent scratch workspaces
+_workspace/
+_workspace_*/
+_workspace_run_*.log

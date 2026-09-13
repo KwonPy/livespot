@@ -15,16 +15,18 @@
 | 3 | GPS 100m 인증 | ✅ 구현 | [002](docs/worklogs/002-report-gps-verification.md) · [003](docs/worklogs/003-proximity-report-alert.md) |
 | 4 | Credit 보상 | ✅ 구현 (제보 +10 / 답변 +5 / 질문 0) | [010](docs/worklogs/010-credit-badge.md) |
 | 5 | LIVE 상태창 · 핫스팟 | ✅ 구현 (MVP 범위, 카드 썸네일 포함) | [005](docs/worklogs/005-live-status-hotspots.md) · [011](docs/worklogs/011-bookmarks-and-weather-badge.md) |
-| 6 | 현장 사용자 수 집계 | ⬜ 미구현, **확정안 있음** (last_seen 30분) | — |
+| 6 | 현장 사용자 수 집계 | ✅ 구현 (신규 엔드포인트 0개 — `verify-location`/`live/status`에 얹음) | [013](docs/worklogs/013-onsite-user-count.md) |
 | 7 | 실시간 Q&A | ✅ 구현 (Credit 포함) | [006](docs/worklogs/006-realtime-qna.md) · [007](docs/worklogs/007-live-page-restructure.md) · [010](docs/worklogs/010-credit-badge.md) |
-| 8 | 푸시 알림 | ⬜ 미구현 — foreground 알림으로 일부 대체, **질문 알림 대상 로직 확정** | [003](docs/worklogs/003-proximity-report-alert.md) |
+| 8 | 푸시 알림 (질문/답변 알림) | 🟡 **인앱 알림으로 구현 완료** — 서버가 알림 행을 남기고, **앱이 WebSocket(`GET /api/notifications/ws`) 신호를 받아 즉시 재조회**한다(끊기면 7초 폴링으로 자동 폴백). 표시는 **모달 다이얼로그**(자동 닫힘 없음) + MyPage "내 Q&A → 알림" 탭. 재접속 시에는 "새 알림 N건" 요약 다이얼로그. 만료는 연결된 질문의 2시간. **실제 Web Push/FCM(탭을 닫아도 오는 것)은 범위 밖**(014 Q2-C, P21로 최종 출품물이 모바일 웹서비스 확정) | [003](docs/worklogs/003-proximity-report-alert.md) · [014](docs/worklogs/014-question-answer-notification.md) |
 | 9 | 혼잡도 판정 (예측/실측 분리) | ✅ 구현 | [004](docs/worklogs/004-congestion-prediction.md) |
 | 10 | AI 브리핑 | ⬜ 미구현 — `gemini.py`는 있으나 **연결 안 됨** | — |
 | 11 | 뱃지 | ✅ 구현 | [010](docs/worklogs/010-credit-badge.md) |
-| 12 | MyPage | 🟡 부분 구현 — 보상(Credit·뱃지)·내 제보·내 Q&A·북마크는 실데이터 연결. 알림 설정·위치 권한·계정(로그아웃)은 아직 죽은 메뉴 | [011](docs/worklogs/011-bookmarks-and-weather-badge.md) |
+| 12 | MyPage | 🟡 부분 구현 — 보상(Credit·뱃지)·내 제보·내 Q&A·북마크는 실데이터 연결. **알림은 2026-09-12에 "내 Q&A"의 3번째 탭으로 통합**(전역 ON/OFF 토글 포함), 별도 알림 메뉴와 죽어 있던 "GPS 인증 설정" 메뉴는 **제거**. 위치 권한·계정(로그아웃)은 아직 죽은 메뉴 | [011](docs/worklogs/011-bookmarks-and-weather-badge.md) · [014](docs/worklogs/014-question-answer-notification.md) |
 | — | 관광지 조회 · 지도 | ✅ 구현 (대표이미지 CORS 프록시 포함) | [001](docs/worklogs/001-tourapi-spots.md) · [011](docs/worklogs/011-bookmarks-and-weather-badge.md) |
 
-**핵심 구간(제보 → LIVE → Q&A)에 이어 Credit·뱃지도 끝났고, MyPage도 절반은 실데이터로 채워졌다.** 남은 것은 AI 브리핑 · 현장 인원 · 푸시 · 로그인 · MyPage 잔여 메뉴(알림 설정·위치 권한·계정). 이 중 로그인/현장 인원/푸시(대상 로직)/MyPage는 정책 확정안이 나와 있다 (4장).
+**핵심 구간(제보 → LIVE → Q&A)에 이어 Credit·뱃지·현장 인원 집계도 끝났고, MyPage도 절반은 실데이터로 채워졌다.** **질문/답변 알림(기능 8)도 인앱 범위에서 끝났다** — 현장 인원 집계(기능 6)의 `get_onsite_user_ids()`를 그대로 재사용해 대상을 판정하므로, 화면의 "현장 N명"과 알림 대상이 어긋나지 않는다. 남은 것은 AI 브리핑 · 로그인 · MyPage 잔여 메뉴(위치 권한·계정) · 실제 Web Push. 이 중 로그인/MyPage는 정책 확정안이 나와 있다 (4장).
+
+> ⚠️ **아래 "기능 8. 푸시 알림" 절(FCM 통일 · `device_tokens`/`push_jobs`/`push_log` 테이블 · 대기열+워커 · 발송 상한 3종 · 알림 30분 만료)은 설계 시점 문서이고 전부 폐기됐다.** 실제로 채택된 정책은 [014 일지](docs/worklogs/014-question-answer-notification.md) 9절이다 — 인앱 폴링(큐·워커 없음), 테이블은 `notifications`/`user_notification_settings`/`push_subscriptions`, 발송 상한 없음, 만료는 연결된 질문의 2시간. **충돌하면 일지가 이긴다.**
 
 ---
 
@@ -68,6 +70,7 @@
 | **Credit** | 제보 +10 · 답변 +5 · 질문 0. `credit_ledger` 통장식 원장에 적립·차감을 쌓고, `users.credit_balance`는 캐시일 뿐 원장 합계가 진실. 뱃지 등급은 **누적 총액** 기준(잔액 아님) |
 | **뱃지** | 크레딧을 리워드·현금성 포인트로 교환하지 않는다. 게이미피케이션만(새싹→Spot 탐방객→Spot 탐험가→베테랑→마스터) |
 | **북마크** | `user_id`+`spot_content_id` UNIQUE. 추가·해제(`POST`/`DELETE`)는 **멱등**(중복 호출도 200, 409/404 없음). Credit 미지급·GPS 미요구·만료 없음. 목록 항목 탭 시 **관광지 상세페이지로 이동**(내 제보·내 Q&A와 달리) |
+| **현장 인원** | 신규 엔드포인트 없이 기존 `POST /reports/verify-location`이 성공하면 부수효과로 `presences` 1행 UPSERT. `content_id`는 앱이 지정(서버가 좌표로 추정 안 함), 좌표는 저장 안 함(거리만 남김). 인원수는 상태 컬럼 없이 **조회 시점에 `last_seen ≥ 지금-30분`으로 계산**(만료 배치 없음). Credit 미지급 |
 | **대표이미지** | TourAPI 이미지 CDN이 CORS 헤더를 안 보내 Flutter Web에서 직접 로드 시 항상 실패한다. 백엔드 `GET /api/images/proxy?url=`이 대신 fetch해 CORS 헤더를 붙여 중계— 앱은 원본 URL을 절대 직접 그리지 않고 이 프록시를 거친다. 화이트리스트로 TourAPI 이미지 호스트만 허용(SSRF 방지) |
 | **개발 스위치** | `DEMO_BYPASS_GPS`(거리 판정 우회) · `TEST_MODE`(헤더로 작성자 변경). **배포 시 둘 다 반드시 False** |
 
@@ -115,26 +118,9 @@
 
 **연결 지점 (중요)** — 제보 +10 → `api/reports.py`의 `create_report`, 답변 +5 → `api/questions.py`의 `create_answer`. 각각 **하나의 트랜잭션**으로 묶어야 "제보는 됐는데 포인트는 안 들어옴"이 안 생긴다.
 
-### 기능 6. 현장 사용자 수 집계
-
-**확정안** — 별도의 "GPS 인증하기" 버튼은 만들지 않는다. 앱이 사용자 위치를 확인해 관광지 반경 안인지 판단하고, **현장 제보 작성 시점에** 현장 활동으로 인정한다 (관광지 방문 → 위치 확인 → 반경 내 → 제보 작성 → 현장 제보로 인정, 기능 2/4와 동일 흐름). 현장 사용자 집계·질문 Push를 위해 `last_seen`(마지막으로 관광지 현장이 확인된 시점) 개념을 쓴다.
-
-> **현장 사용자 기준: `last_seen`으로부터 30분 이내.**
-
-예: 12:00 GPS 확인 → 12:20·12:34 현장 사용자 O, 12:36 현장 사용자 X. 앱이 다시 켜지면 GPS를 재확인해 같은 관광지면 `last_seen`을 갱신한다. 10분은 사진 촬영·이동 중 앱을 잠깐 닫는 상황을 못 버텨 너무 짧고, 1시간은 이미 떠난 사용자까지 현장으로 잡혀 너무 길다 — **30분을 현장성과 사용성의 타협점**으로 확정.
-
-앱이 꺼진 뒤 백그라운드로 위치를 계속 추적하지 않는다 — 마지막으로 확인된 현장 상태를 30분 동안만 유효로 간주하는 방식. 신뢰성도 과도하게 검증하지 않는다: 사진 첨부나 추가 인증 없이 **GPS로 "실제 근처에서 활동했는가"만 확인**한다 (제보 내용의 100% 진실성까지 보장하지는 않음).
-
-- `presence` 테이블 — 누가 어느 관광지 근처에 마지막으로 언제 있었는지 (`last_seen`).
-- **앱은 좌표만 보내고 어느 관광지인지는 서버가 판단한다.** 그래야 아무 관광지도 열지 않아도 자동 참여가 된다.
-- **좌표를 저장하지 않는다.** 관광지로부터의 거리만 남기고 원본은 버린다 → 이동 경로 복원 불가. 24시간 뒤 삭제.
-- 정직한 표기: "현재 18명"이 아니라 **"최근 30분 기준 18명"**.
-- 위치 신호 응답에 "지금 답변 기다리는 질문"을 함께 실어 보내면 **푸시 없이도 답변 유도**가 된다 — 웹에서는 이게 사실상 주 전달 경로다.
-- ⚠️ 웹은 탭을 닫으면 즉시 끊긴다. 인원이 구조적으로 적게 잡힌다.
-
 ### 기능 8. 푸시 알림
 
-**확정안** — 질문이 등록되면 **해당 관광지의 최근 30분 현장 사용자**(기능 6의 `last_seen`)에게 알림한다. **알림 대상 판정은 Flutter가 아니라 FastAPI가 한다** (질문 생성 → FastAPI가 해당 관광지 `last_seen` 조회 → `현재시간 - last_seen ≤ 30분`인 사용자 선정 → FCM 발송) — 대상자 판단 기준을 서버 한 곳에서 일관되게 관리하기 위함.
+**확정안** — 질문이 등록되면 **해당 관광지의 최근 30분 현장 사용자**에게 알림한다. **알림 대상 판정은 Flutter가 아니라 FastAPI가 한다.** 기능 6이 이미 이 판정을 `services/presence.py::get_onsite_user_ids(db, content_id)`로 빼 뒀으므로 ([013](docs/worklogs/013-onsite-user-count.md) 참고), 여기서 새로 쿼리를 짜지 않고 그 함수를 그대로 호출해 대상 명단을 받는다 — 화면에 뜨는 인원수와 알림 대상이 어긋나지 않도록.
 
 알림 수단은 **FCM 하나**로 통일하되 앱 상태에 따라 표현만 다르게 한다: 포그라운드 = 앱 내부 알림/배너, 백그라운드 = 시스템 Push, 종료 상태 = 시스템 Push(기본 방향). 앱 내부 팝업만 쓰면 앱을 안 보고 있는 현장 사용자에게 못 알리고, 반대로 무조건 시스템 Push만 쓰면 앱을 보고 있을 때도 매번 외부 알림 형태가 되는 문제를 절충.
 
@@ -201,8 +187,8 @@
 | `spot_notification_settings` ✅ | 관광지별 알림 on/off (`user_id`+`content_id` 유니크) | 3 |
 | `questions` ✅ | 질문 (`answer_count` 캐싱 포함) | 7 |
 | `answers` ✅ | 답변 | 7 |
-| `credit_ledger` | Credit 적립·차감 내역 (통장식). 합계에서 뱃지 등급 계산 | 4·11 |
-| `presence` | 누가 어느 관광지 근처에 마지막으로 있었는지 (`last_seen`, 30분 기준) | 6·8 |
+| `credit_ledger` ✅ | Credit 적립·차감 내역 (통장식). 합계에서 뱃지 등급 계산 | 4·11 |
+| `presences` ✅ | 누가 어느 관광지 근처에 마지막으로 있었는지. 좌표 없음(`distance_m`만), `UNIQUE(user_id, spot_content_id)`로 1인당 1행 | 6, 8이 재사용 예정 |
 | `device_tokens` / `push_jobs` / `push_log` / `motivation_texts` | 푸시 | 8 |
 | `briefing_cache` | AI 브리핑 보관 | 10 |
 | `activities` | 제보·질문·답변 통합 활동 | ⏸ 보류 |
@@ -222,15 +208,14 @@
 | 관광지 ✅ | `GET /spots` · `/spots/all` · `POST /spots/nearby` · `GET /spots/trending` · `GET /spots/{id}` · `/{id}/intro` · `/{id}/photos` |
 | 혼잡도 ✅ | `GET /spots/{id}/congestion` · `POST /spots/congestion-batch` |
 | 제보 ✅ | `POST /reports` · `GET /reports?spot_content_id=` |
-| GPS 인증 ✅ | `POST /reports/verify-location` |
+| GPS 인증 ✅ | `POST /reports/verify-location` (응답에 `presence_registered`·`pending_questions` 포함 — 기능 6이 신규 엔드포인트 없이 여기 얹힘) |
 | 알림 설정 ✅ | `GET /notifications/settings` · `GET /notifications/settings/{id}` · `POST /notifications/settings` |
-| LIVE ✅ | `GET /live/status/{id}` · `GET /live/hotspots` |
+| LIVE ✅ | `GET /live/status/{id}`(응답에 `onsite_user_count` 포함) · `GET /live/hotspots` |
 | Q&A ✅ | `POST /questions` · `GET /questions?spot_content_id=` · `GET /questions/recent` · `POST /questions/{id}/answers` |
 | 개발용 ✅ | `GET /dev/test-users` (TEST_MODE 전용) |
 | 레거시 ⚠️ | `GET /spots/{id}/crowdedness` · `/{id}/briefing` — 앱 미사용, 정리 대상 |
 | 로그인 ⬜ | 세션 생성, 카카오 토큰 교환, 내 정보·내 활동 |
 | Credit ⬜ | 잔액·내역 조회 |
-| 현장 인원 ⬜ | 위치 신호 전송, 이탈 |
 | 푸시 ⬜ | 기기 토큰 등록·해제 |
 
 ---
@@ -242,10 +227,10 @@
 | | 단계 | 기간 | 끝나면 |
 |---|---|---|---|
 | ✅ | 0~3. 기반 · 제보 · LIVE · Q&A | — | **완료** |
-| | 4. AI 브리핑 | 1일 | 진짜 Gemini 브리핑 (혼잡도 분리는 이미 완료) |
-| | 5. Credit | 1.5일 | 제보 +10 / 답변 +5 실제 적립, 뱃지 등급 |
-| | 6. 현장 사용자 수 | 1.5일 | "최근 30분 N명" + 답변 유도 |
-| | 7. 푸시 | 2일 | 알림 발송 (웹 도달률 제약) |
+| ✅ | 4. Credit · 뱃지 | — | **완료** — 제보 +10 / 답변 +5 실제 적립, 뱃지 등급 ([010](docs/worklogs/010-credit-badge.md)) |
+| ✅ | 5. 현장 사용자 수 | — | **완료** — "최근 30분 N명" + 답변 유도 배너 ([013](docs/worklogs/013-onsite-user-count.md)) |
+| | 6. AI 브리핑 | 1일 | 진짜 Gemini 브리핑 (혼잡도 분리는 이미 완료) |
+| | 7. 푸시 | 2일 | 알림 발송. 대상 명단은 기능 6의 `get_onsite_user_ids()` 재사용 (웹 도달률 제약) |
 | | 8. 운영 정비 | 2일 | 신고·제한·보관정책·배포 |
 | | 9. 로그인 (실제) | 1.5일 | `test_user` 하드코딩 제거, 다중 사용자 |
 

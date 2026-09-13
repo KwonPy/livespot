@@ -56,6 +56,29 @@ Stop-Process -Id <PID> -Force
 
 프로세스명이 `python`인지 확인한 뒤 종료한다. 무관한 프로세스를 죽이지 않기 위함이다.
 
+### ⚠️ `--reload`로 띄운 uvicorn은 **자식 워커까지** 죽여야 한다
+
+`uvicorn --reload`는 프로세스가 하나가 아니다. 포트를 잡고 있는 **부모(리로더)**가 `multiprocessing.spawn`으로 **자식 워커**를 띄우고, **실제로 요청을 처리하는 코드는 자식에 있다.** 그래서 `Get-NetTCPConnection`으로 찾은 PID만 죽이면 자식 워커가 **고아 프로세스로 살아남아 계속 예전 코드로 응답한다.** 증상은 "분명히 서버를 껐다 켰는데 코드 수정이 반영되지 않는다"이다 — 서버가 안 죽은 것이 아니라 **덜 죽은 것**이다.
+
+```powershell
+# 1) 포트를 잡고 있는 부모 PID
+$parent = (Get-NetTCPConnection -LocalPort 8000 -State Listen).OwningProcess
+
+# 2) 그 PID를 parent_pid= 로 갖는 자식 워커 찾기 (커맨드라인에 박혀 있다)
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+  Where-Object { $_.CommandLine -like "*parent_pid=$parent*" } |
+  Select-Object ProcessId, CommandLine
+
+# 3) 자식 → 부모 순으로 종료
+taskkill /PID <자식 PID> /F
+taskkill /PID $parent /F
+
+# 4) 정말 죽었는지 확인 — 아무것도 안 나와야 한다
+Get-NetTCPConnection -LocalPort 8000 -State Listen
+```
+
+재시작 후에는 반드시 **바뀐 코드가 실제로 응답에 나타나는지**(새 엔드포인트 curl, 로그의 기동 시각 등)로 확인한다. `/health`만으로는 부모·자식 중 누가 답하고 있는지 구분되지 않는다.
+
 ## 스모크 검증 절차
 
 새 엔드포인트나 스키마를 바꿨으면 **실제 응답 JSON을 반드시 눈으로 본다.** Pydantic 정의를 읽은 것은 검증이 아니다 — `response_model` 필터링·직렬화 설정 때문에 정의와 실제 응답이 다를 수 있다.

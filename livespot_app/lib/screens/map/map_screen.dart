@@ -22,16 +22,7 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
-  int _selectedCategoryIndex = 0;
   Spot? _selectedSpot;
-
-  final List<Map<String, dynamic>> _categories = [
-    {'label': '전체', 'icon': Icons.apps},
-    {'label': '관광지', 'icon': Icons.landscape},
-    {'label': '문화시설', 'icon': Icons.museum},
-    {'label': '축제', 'icon': Icons.celebration},
-    {'label': '체험', 'icon': Icons.sports_tennis},
-  ];
 
   final ApiService _apiService = ApiService();
 
@@ -482,9 +473,6 @@ class _MapScreenState extends State<MapScreen> {
                           style: TextStyle(color: Colors.grey[600], fontSize: 14),
                         ),
                       ),
-                      Container(width: 1, height: 20, color: Colors.grey[200]),
-                      const SizedBox(width: 10),
-                      Icon(Icons.tune, color: Colors.grey[500], size: 20),
                       const SizedBox(width: 16),
                     ],
                   ),
@@ -492,61 +480,12 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ),
           ),
-          
-          // 카테고리 칩
+
+          // 지도 마커 색상 범례 버튼
           Positioned(
             top: MediaQuery.of(context).padding.top + (_backendError ? 120 : 76),
-            left: 0,
-            right: 0,
-            child: SizedBox(
-              height: 40,
-              child: Row(
-                children: [
-                  const SizedBox(width: 16),
-                  _buildLegendButton(),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                padding: EdgeInsets.zero,
-                itemCount: _categories.length,
-                itemBuilder: (context, index) {
-                  final cat = _categories[index];
-                  final isSelected = _selectedCategoryIndex == index;
-                  return GestureDetector(
-                    onTap: () => setState(() => _selectedCategoryIndex = index),
-                    child: Container(
-                      margin: const EdgeInsets.only(right: 8),
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      decoration: BoxDecoration(
-                        color: isSelected ? LiveSpotTheme.primaryColor : Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 6),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(cat['icon'] as IconData, size: 16, color: isSelected ? Colors.white : Colors.grey[600]),
-                          const SizedBox(width: 4),
-                          Text(
-                            cat['label'] as String,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: isSelected ? Colors.white : Colors.grey[700],
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            left: 16,
+            child: _buildLegendButton(),
           ),
 
           // 내 위치 버튼

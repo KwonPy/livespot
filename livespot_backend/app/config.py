@@ -95,6 +95,16 @@ class Settings(BaseSettings):
     # LIVE·브리핑·Q&A와 하루 경계가 갈리면 같은 화면이 서로 다른 기준으로 그려진다.
     CREDIT_DAILY_LIMIT_PER_SPOT: int = 3
 
+    # ── 질문/답변 알림 (기능 8) ──
+    # **알림 전용 수명 상수가 없다**(2026-09-10 방향 수정 P24). 알림이 목록에 보이는 기준은
+    # "연결된 질문이 아직 유효한가"이고, 그 값은 db/models/question.py의 QUESTION_TTL_HOURS(2)
+    # 하나뿐이다. 예전의 NOTIFICATION_TTL_MINUTES(30) / MAX_RECIPIENTS(10) /
+    # MAX_PER_USER_PER_HOUR(2) / RATE_WINDOW_HOURS / DEDUP_HOURS(6)는 발송 제한 3종 폐기(P26)와
+    # 함께 전부 삭제됐다. 여기에 같은 값을 다시 두면 질문 TTL과 갈라진다.
+
+    # GET /notifications가 한 번에 돌려주는 최대 건수. 목록 응답 크기의 상한.
+    NOTIFICATION_LIST_LIMIT: int = 50
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 settings = Settings()

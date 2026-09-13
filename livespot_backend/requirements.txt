@@ -1,5 +1,9 @@
 fastapi==0.115.0
 uvicorn[standard]==0.30.0
+# uvicorn[standard]==0.30.0의 websocket 구현은 websockets>=14의 새 서버 API와 호환되지
+# 않아 핸드셰이크가 즉시 403으로 거부된다(2026-09-12, 기능 8 실시간 알림 WebSocket 도입 중
+# 발견). uvicorn 자체를 올리지 않고 websockets만 호환 버전으로 고정한다.
+websockets==13.1
 pydantic==2.9.0
 pydantic-settings==2.5.0
 aiohttp==3.10.0

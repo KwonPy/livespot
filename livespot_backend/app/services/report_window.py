@@ -17,6 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.db.models.question import QUESTION_TTL_HOURS
 from app.db.models.report import Report
 
 KST_OFFSET = timedelta(hours=9)
@@ -59,6 +60,22 @@ def presence_retention_cutoff_utc() -> datetime:
     삭제")의 이행 기준이다. 두 값이 다른 목적을 가지므로 상수도 따로 둔다.
     """
     return datetime.utcnow() - timedelta(hours=settings.PRESENCE_RETENTION_HOURS)
+
+
+def question_validity_cutoff_utc() -> datetime:
+    """질문(기능 7)이 아직 유효한지 판정하는 시간창의 시작 시각. questions.created_at이
+    이 시각 이상이면 ACTIVE다.
+
+    기능 8의 알림 만료도 이 값을 쓴다(P24, 2026-09-10 방향 수정). **알림에는 자기만의
+    TTL이 없다** — 알림이 목록에 보이는 조건은 "연결된 질문이 아직 2시간 안인가" 하나뿐이다.
+    이전에 있던 `notification_window_cutoff_utc()`(30분)·`notification_rate_cutoff_utc()`·
+    `notification_dedup_cutoff_utc()`는 발송 제한 3종 폐기(P26)와 함께 삭제됐다.
+
+    상수는 `db/models/question.py::QUESTION_TTL_HOURS`를 그대로 재사용한다 — 알림 쪽에
+    같은 값의 별도 설정을 두면 둘이 갈리는 순간 "질문 상세는 만료라는데 알림 목록엔
+    남아 있는" 상태가 된다.
+    """
+    return datetime.utcnow() - timedelta(hours=QUESTION_TTL_HOURS)
 
 
 async def latest_and_count(

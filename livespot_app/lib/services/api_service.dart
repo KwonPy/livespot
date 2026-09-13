@@ -17,6 +17,7 @@ import '../models/my_report_entry.dart';
 import '../models/my_question_entry.dart';
 import '../models/my_answer_entry.dart';
 import '../models/bookmark_entry.dart';
+import '../models/app_notification.dart';
 
 class ApiService {
   late final Dio _dio;
@@ -418,6 +419,61 @@ class ApiService {
       throw Exception('Failed to remove bookmark: ${response.statusCode}');
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // 기능 8(질문/답변 알림)
+  //
+  // ⚠️ 위쪽의 fetchNotificationSettings / setNotificationSetting(`/notifications/settings`)은
+  //    기능 3의 **관광지별** 자동 제보 유도 알림 설정(기본 꺼짐)이다. 아래 push-settings는
+  //    기능 8의 **전역** 스위치(기본 켜짐)로 완전히 다른 API다 — 경로가 비슷하다고 섞지 말 것.
+  //
+  // 서버는 조회 실패를 정직하게 500으로 던진다(빈 배열 폴백 없음, P11). 여기서도
+  // 그대로 예외로 전파한다 — "알림 0건"과 "못 읽었음"을 화면이 구분할 수 있어야 한다.
+  // 그 예외를 사용자에게 보여줄지는 호출부가 정한다: 배경 폴링은 조용히 삼키고(P12),
+  // 사용자가 직접 누른 동작은 메시지를 그대로 보여준다.
+  // ---------------------------------------------------------------------------
+
+  /// 내 알림 목록 + 미읽음 수. 만료 판정은 서버가 한다 — 연결된 질문이 유효시간
+  /// 2시간을 넘겼으면(P22·P24) 목록에서 빠진 채로 온다. 앱은 다시 계산하지 않는다.
+  /// [limit]은 서버에서 1~100만 허용되며, 벗어나면 422다 — 앱이 범위 밖 값을 보내지 않는다.
+  Future<NotificationList> fetchNotifications({int? limit}) async {
+    try {
+      final response = await _dio.get(
+        '/notifications',
+        queryParameters: limit == null ? null : {'limit': limit},
+      );
+      return NotificationList.fromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      throw Exception(_extractErrorMessage(e));
+    }
+  }
+
+  /// 알림 1건 읽음 처리. 멱등이라 이미 읽은 알림을 다시 호출해도 200 + updated_count 0.
+  /// 없는 id이거나 남의 알림이면 404 + detail 문자열이 온다.
+  Future<NotificationReadResult> markNotificationRead(String notificationId) async {
+    try {
+      final response = await _dio.post('/notifications/$notificationId/read');
+      return NotificationReadResult.fromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      throw Exception(_extractErrorMessage(e));
+    }
+  }
+
+  /// 미읽음 알림을 한 번에 읽음 처리. 미읽음이 0건이어도 200이다.
+  Future<NotificationReadResult> markAllNotificationsRead() async {
+    try {
+      final response = await _dio.post('/notifications/read-all');
+      return NotificationReadResult.fromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      throw Exception(_extractErrorMessage(e));
+    }
+  }
+
+  // 2026-09-13(015) 전역 알림 ON/OFF 토글 폐기로 `fetchPushSettings`/`updatePushSettings`
+  // (`/notifications/push-settings` 2종)를 제거했다. 알림은 이제 항상 켜져 있다.
+  //
+  // ⚠️ 바로 위·아래에 있는 `/notifications/settings` 3종(관광지별 제보 유도 알림, 기능 3)은
+  // 이름만 비슷한 **다른 기능**이라 그대로 둔다. 혼동해서 지우면 상세페이지 종 아이콘이 죽는다.
 
   /// 개발용: TEST_MODE가 꺼져있으면(운영) 서버가 404를 준다 — 그 경우 빈 목록으로 처리.
   Future<List<Map<String, dynamic>>> fetchTestUsers() async {

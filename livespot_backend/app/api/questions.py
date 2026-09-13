@@ -22,6 +22,7 @@ from app.models.schemas import (
 from app.services.tour_api import TourAPIService
 from app.services.geo import calculate_distance_m
 from app.services import credit as credit_service
+from app.services import notification as notification_service
 from app.services.spot_lookup import resolve_spot_names
 from app.services.question_query import (
     build_question_response as _to_response,
@@ -63,14 +64,38 @@ async def create_question(
     if user is None:
         raise HTTPException(status_code=500, detail="사용자가 초기화되지 않았습니다")
 
+    # 알림(기능 8) 대상 판정을 **db.add(question)보다 먼저** 부른다. 판정 안에서 presences
+    # SELECT가 돌기 때문에, 세션에 pending 객체가 있으면 autoflush가 끼어들어 아직 완성되지
+    # 않은 질문 행을 먼저 INSERT 하려 든다(credit.prepare_award와 같은 제약).
+    #
+    # 2026-09-13: 이 호출을 한 번 제거했다가 같은 날 복원했다(015 2-2절 사용자 정정).
+    # "인앱 알림 목록 *페이지*를 없애라"를 "NEW_QUESTION 알림을 만들지 말라"로 잘못 읽은
+    # 결과, 현장 사용자에게 뜨던 실시간 모달까지 같이 사라졌다 — 모달·배지·목록이 전부
+    # 같은 알림 행 하나에서 갈라지기 때문이다. 지우지 말 것.
+    pending_alerts = await notification_service.prepare_new_question(
+        db,
+        spot_content_id=payload.spot_content_id,
+        actor_user_id=user_id,
+    )
+
     question = Question(
         user_id=user_id,
         spot_content_id=payload.spot_content_id,
         content=payload.content,
     )
     db.add(question)
+    # 알림 행에 question_id를 채우려면 id가 먼저 필요하다. commit까지 기다리지 않고 flush로
+    # INSERT만 당겨 받는다 — 알림 INSERT를 질문과 같은 트랜잭션에 묶기 위함이다(P6).
+    await db.flush()
+
+    alert_rows = pending_alerts.build(question_id=question.id)
+    db.add_all(alert_rows)
     await db.commit()
     await db.refresh(question)
+
+    # 전달(WS 깨우기)은 commit 이후에. 실패해도 예외를 삼킨다 — 알림 행은 이미 저장됐다.
+    await notification_service.deliver(db, alert_rows)
+
     return await _to_response(db, question, user.nickname)
 
 
@@ -246,6 +271,19 @@ async def create_answer(
         gps_verified=is_verified,
     )
 
+    # 알림(기능 8)도 같은 이유로 db.add(answer) 앞에서 판정한다. 수신자는 질문자 1명이고,
+    # question_id를 이미 알고 있어 여기서 바로 행까지 만들 수 있다(질문 등록 경로와 달리
+    # flush를 기다릴 필요가 없다).
+    alert_rows = (
+        await notification_service.prepare_new_answer(
+            db,
+            spot_content_id=question.spot_content_id,
+            question_owner_id=question.user_id,
+            actor_user_id=user_id,
+            answer_content=payload.content,
+        )
+    ).build(question_id=question_id)
+
     answer = Answer(
         question_id=question_id,
         user_id=user_id,
@@ -259,8 +297,12 @@ async def create_answer(
         # 경계가 자동으로 지켜진다. 같은 질문에 두 번째 답변부터는 ledger가 None이고
         # (질문당 1회, P14) 답변 자체는 정상 저장된다.
         db.add(ledger)
+    # 알림도 같은 트랜잭션에 얹는다(P6). 대상이 없으면 빈 리스트라 아무 일도 하지 않는다.
+    db.add_all(alert_rows)
     await db.commit()
     await db.refresh(answer)
+
+    await notification_service.deliver(db, alert_rows)
 
     return AnswerResponse(
         id=answer.id,
