@@ -21,6 +21,7 @@ from app.db.models.answer import Answer
 from app.db.models.question import Question, QUESTION_TTL_HOURS
 from app.db.models.user import User
 from app.models.schemas import AnswerResponse, QuestionResponse
+from app.services.nickname import display_nickname
 from app.services.report_window import today_cutoff_utc
 
 
@@ -34,9 +35,15 @@ def question_status(question: Question) -> str:
 
 
 async def build_question_response(
-    db: AsyncSession, question: Question, asker_nickname: str
+    db: AsyncSession, question: Question, asker_nickname: Optional[str]
 ) -> QuestionResponse:
-    """질문 1건 + 그 답변 목록을 응답 모델로 조립한다."""
+    """질문 1건 + 그 답변 목록을 응답 모델로 조립한다.
+
+    `users.nickname`이 nullable이 되면서(P25) 조인 결과가 None일 수 있다. 응답 필드는
+    계속 `str`이므로 `display_nickname()`으로 폴백을 씌운다(P33) — 목록 하나가
+    "알 수 없음"으로 뜨는 것이 500보다 낫다. 실제로는 닉네임 미설정 사용자가 질문·답변을
+    작성할 수 없으므로(P28) 이 폴백이 발동하면 그 자체가 버그 신호다.
+    """
     result = await db.execute(
         select(Answer, User.nickname)
         .join(User, Answer.user_id == User.id)
@@ -48,7 +55,7 @@ async def build_question_response(
             id=a.id,
             question_id=a.question_id,
             user_id=a.user_id,
-            user_nickname=nickname,
+            user_nickname=display_nickname(nickname),
             content=a.content,
             created_at=a.created_at,
         )
@@ -57,7 +64,7 @@ async def build_question_response(
     return QuestionResponse(
         id=question.id,
         user_id=question.user_id,
-        user_nickname=asker_nickname,
+        user_nickname=display_nickname(asker_nickname),
         spot_content_id=question.spot_content_id,
         content=question.content,
         status=question_status(question),
@@ -75,7 +82,7 @@ async def fetch_spot_questions(
     pending_only: bool = False,
     active_only: bool = False,
     limit: Optional[int] = None,
-) -> Sequence[Tuple[Question, str]]:
+) -> Sequence[Tuple[Question, Optional[str]]]:   # 닉네임은 nullable이다(P25)
     """관광지별 질문 목록 (오늘=KST 자정 기준, 최신순)과 작성자 닉네임.
 
     active_only=True면 만료(EXPIRED)된 질문 제외, pending_only=True면 추가로 답변이

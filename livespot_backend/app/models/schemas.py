@@ -538,3 +538,98 @@ class BookmarkEntry(BaseModel):
     spot_address: Optional[str] = None
     spot_image_url: Optional[str] = None
     created_at: datetime
+
+
+# ──────────────────── 카카오 로그인 (기능 9) ────────────────────
+# 인증 방식: 카카오 JS SDK 팝업(Q1-B) → 프론트가 얻은 **카카오 access token**을 서버로 POST
+# → 서버가 kapi.kakao.com에 검증(P6) → **우리 자체 JWT**를 발급(Q2-A).
+# 카카오 ID는 응답에 절대 싣지 않는다(P4) — 클라이언트가 보는 식별자는 내부 UUID뿐이다.
+
+
+class KakaoLoginRequest(BaseModel):
+    """POST /api/auth/kakao 요청 본문.
+
+    이 토큰은 **카카오가 발급한 것**이고, 우리 API의 인증 수단이 아니다.
+    서버가 검증한 뒤 버리며, 우리 DB에 저장하지 않는다(저장하면 유출 시 카카오
+    사용자 정보까지 함께 새는 자산이 된다. 우리는 이 토큰으로 할 일이 로그인 시점의
+    본인 확인 한 번뿐이라 보관할 이유가 없다).
+    """
+
+    kakao_access_token: str
+
+
+class AuthUser(BaseModel):
+    """로그인한 사용자 1명. POST /api/auth/kakao 응답의 `user`,
+    GET /api/auth/me, PUT /api/auth/me/nickname 응답이 **전부 같은 모양**이다 —
+    앱이 모델 하나(AuthUser)만 만들면 된다.
+
+    `user_id`는 내부 UUID(P8)다. 카카오 회원번호가 아니다.
+
+    **2026-09-14: P22 폐기.** `nickname`은 이제 **사용자가 앱에서 직접 입력한 값**이고
+    **unique**하다(P23·P24). 카카오가 준 닉네임을 저장하지 않으며, 아직 정하지 않았으면
+    `null`이다(P25 — 미설정 상태의 유일한 표현은 `nickname IS NULL`이다).
+    다만 unique는 **표시 계층의 제약**일 뿐 식별 키는 여전히 `users.id`뿐이다(P24).
+
+    `nickname_required`는 `nickname is None`과 같은 값이지만, **앱이 null을 직접 해석해
+    정책을 추론하지 않도록** 서버가 계산해 실어 준다(P26). 계산 지점은
+    `auth.py::_to_auth_user()` **한 곳뿐**이다.
+    `is_new_user`(LoginResponse)와는 **다른 값이다**(P27) — 기존 사용자도 미설정일 수 있다.
+
+    `profile_image_url`은 **항상 null이 된다**(P39·P40). 카카오 동의항목을 하나도 받지
+    않기로 확정돼 채울 값이 없다. 그래도 필드를 남기는 이유는, 앱 자체 프로필 이미지
+    업로드가 붙을 때 이 자리가 그대로 쓰이기 때문이다(스키마·Dart 모델을 다시 흔들지 않는다).
+    """
+
+    user_id: str
+    nickname: Optional[str] = None            # 미설정이면 null (P25)
+    nickname_required: bool                   # nickname is None (P26). 앱은 이것만 본다
+    profile_image_url: Optional[str] = None   # 앞으로 항상 null (P40)
+    credit_balance: int
+    trust_level: str
+    created_at: datetime                      # naive UTC (가입 시각)
+
+
+class NicknameUpdateRequest(BaseModel):
+    """PUT /api/auth/me/nickname 요청 본문.
+
+    **검증도 정규화도 서버가 한다**(P30). 여기에 pattern/min_length를 걸지 않는 이유:
+    Pydantic이 막으면 422 + 리스트 형식 detail이 되는데, 2-4절이 **400 + 한국어 문자열**로
+    확정했다. 화면에 그대로 띄울 수 있는 문구를 서버가 고르기 위해 검증을 라우터
+    (services/nickname.py)로 내린다.
+    """
+
+    nickname: str
+
+
+class NicknameAvailability(BaseModel):
+    """GET /api/auth/nickname-available?nickname=... 응답 (Q2-B).
+
+    **이 응답은 조언일 뿐 확정이 아니다.** 확인과 제출 사이에 남이 선점할 수 있으므로
+    최종 판정은 언제나 PUT 시점의 409다. 앱은 이 값으로 입력창 아래 문구만 그린다.
+
+    `nickname`은 **서버가 정규화한 결과**(strip + NFC)를 돌려준다 — 앱이 보낸 것과 다를 수
+    있고, 실제로 저장·비교되는 값이 이쪽이다.
+    `reason`은 `available=true`면 null, false면 화면에 그대로 띄울 한국어 문구다.
+    """
+
+    nickname: str
+    available: bool
+    reason: Optional[str] = None
+
+
+class LoginResponse(BaseModel):
+    """POST /api/auth/kakao 응답.
+
+    `expires_at`을 함께 주는 이유: 앱이 토큰을 shared_preferences에 저장했다가
+    복원할 때(P19), 만료가 뻔한 토큰으로 요청을 쏘고 401을 받는 대신 미리 걸러낼 수
+    있게 하기 위함이다. 다만 **판정의 진실은 서버에 있다** — 앱은 이 값을 힌트로만 쓴다.
+
+    `is_new_user`는 이번 요청에서 users 행이 새로 만들어졌는지다(P7의 upsert 결과).
+    가입 축하 문구 같은 UI 분기에 쓰라고 주는 값이고, 권한과는 무관하다.
+    """
+
+    access_token: str
+    token_type: str = "Bearer"
+    expires_at: datetime                      # naive UTC
+    is_new_user: bool
+    user: AuthUser

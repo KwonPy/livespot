@@ -21,11 +21,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.session import get_db
-from app.db.seed import TEST_USER_ID
+from app.db.session import AsyncSessionLocal, get_db
 from app.db.models.notification import Notification
 from app.db.models.notification_setting import NotificationSetting
-from app.api.deps import get_current_user_id
+from app.db.models.user import User
+from app.api.deps import get_current_user_id, resolve_user_id_from_token
 from app.models.schemas import (
     NotificationEntry,
     NotificationListResponse,
@@ -110,24 +110,65 @@ async def upsert_setting(
 
 
 @router.websocket("/ws")
-async def notifications_ws(websocket: WebSocket, test_user_id: Optional[str] = Query(default=None)):
+async def notifications_ws(
+    websocket: WebSocket,
+    token: Optional[str] = Query(default=None),
+    test_user_id: Optional[str] = Query(default=None),
+):
     """알림 실시간 깨우기 채널(2026-09-12). **알림 데이터를 실어 보내지 않는다** — 연결이 살아
     있는 동안 새 알림이 생기면 빈 신호 하나만 받고, 클라이언트는 그 신호를 받으면 기존
-    `GET /api/notifications`를 즉시 다시 부른다. 그래서 이 엔드포인트에는 인증된 조회 로직이
-    없다 — 아무것도 조회하지 않기 때문이다.
+    `GET /api/notifications`를 즉시 다시 부른다.
 
-    `get_current_user_id`(헤더 기반)를 그대로 쓸 수 없다: 브라우저의 WebSocket API는 핸드셰이크에
-    커스텀 헤더를 실어 보낼 수 없다(`X-Test-User-Id` 불가). 그래서 같은 판정을 쿼리 파라미터로
-    반복한다 — TEST_MODE가 꺼져 있으면 test_user_id를 받아도 무시하고 항상 TEST_USER_ID다.
-    실제 로그인(기능 1) 전까지는 이 구분에 보안적 의미가 없다 — 폴링 엔드포인트와 동일한 수준이다.
+    **2026-09-14(기능 9): 사용자 식별을 토큰 기반으로 교체했다(P13).** 예전에는
+    `?test_user_id=<uuid>`였고, 아무것도 주지 않으면 조용히 TEST_USER_ID로 붙었다.
+    로그인이 붙은 지금 그 폴백을 남겨 두면 **로그인하지 않은 브라우저가 test_user의 알림
+    신호를 받는다** — 비로그인 쓰기를 전부 401로 막아 놓고 알림 채널만 열어 두는 셈이다.
+
+    `Depends(get_current_user_id)`를 쓸 수 없는 이유는 그대로다: 브라우저의 WebSocket API는
+    핸드셰이크에 커스텀 헤더를 실을 수 없다(P14). 그래서 **값만** 쿼리 파라미터로 받고,
+    판정은 deps의 `resolve_user_id_from_token()` 한 곳에 위임한다 — 여기에 검증 로직을
+    복붙하면 언젠가 HTTP 쪽과 갈린다.
+
+    쿼리 파라미터에 토큰이 실리므로 **서버 액세스 로그에 토큰이 남는다.** 대안(첫 메시지로
+    전송, Sec-WebSocket-Protocol에 싣기)과 견주어 이쪽을 택한 이유는, 이 채널이 알림 데이터를
+    실어 나르지 않고(신호만) 폴링이라는 동등한 폴백이 이미 있어서 노출 가치가 낮은 반면,
+    나머지 두 방식은 클라이언트 구현이 눈에 띄게 복잡해지기 때문이다. 로그 보존 정책으로
+    다뤄야 할 항목이라는 점은 작업일지에 남긴다.
+
+    우선순위는 HTTP와 같다: ① token → ② TEST_MODE + test_user_id → ③ 거부(1008).
+    비로그인이면 연결을 만들지 않는다(P15) — 앱도 로그인 상태에서만 WS를 열어야 한다.
 
     연결 수립 실패(끊긴 클라이언트 등)는 여기서 처리하고 상위로 올리지 않는다 — 이 채널이
     죽어도 폴백 폴링이 있으므로 알림 자체가 끊기지 않는다(P23와 같은 이유로, 이 연결의 존재
     유무가 "지금 접속 중"의 판정에 영향을 주지 않는다 — 그 판정은 여전히 폴링이 한다).
     """
-    user_id = TEST_USER_ID
-    if settings.TEST_MODE and test_user_id:
-        user_id = test_user_id
+    # `Depends(get_db)`를 쓰지 않는다. WS 의존성으로 받은 세션은 **연결이 끊길 때까지**
+    # 살아 있어서, 몇 시간씩 붙어 있는 브라우저마다 DB 커넥션을 하나씩 붙잡는다.
+    # 인증에 필요한 것은 접속 순간 한 번뿐이라 여기서 열고 바로 닫는다.
+    user_id: Optional[str] = None
+    async with AsyncSessionLocal() as db:
+        if token:
+            user_id = await resolve_user_id_from_token(db, token)
+        elif settings.TEST_MODE and test_user_id:
+            user = await db.get(User, test_user_id)
+            if user is not None:
+                user_id = test_user_id
+
+        # 2026-09-14(닉네임): 닉네임 미설정 사용자는 **연결 자체를 만들지 않는다**(P28).
+        # HTTP 쪽 403과 같은 판정이고, WS에는 상태코드가 없어 1008(Policy Violation)로 낸다.
+        # 여기서 막는 이유: 닉네임이 없으면 아무것도 쓸 수 없고(403), 쓰지 못하면 질문·답변
+        # 알림의 수신자가 될 일도 없다 — 아무것도 오지 않을 채널을 열어 두면 커넥션만 쥔다.
+        # `Depends(get_current_user_id)`를 못 쓰는 것은 기존 이유 그대로다(브라우저 WS 헤더 제약).
+        if user_id is not None:
+            user = await db.get(User, user_id)
+            if user is None or user.nickname is None:
+                user_id = None
+
+    if user_id is None:
+        # 1008 = Policy Violation. accept() 전에 close()하면 핸드셰이크 자체를 거절한다.
+        await websocket.close(code=1008)
+        return
+
     await ws_manager.connect(user_id, websocket)
     try:
         while True:

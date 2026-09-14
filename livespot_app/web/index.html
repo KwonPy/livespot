@@ -32,6 +32,87 @@
   <title>livespot_app</title>
   <link rel="manifest" href="manifest.json">
 
+  <!--
+    카카오 로그인 JS SDK (기능 9 / Q1-B).
+    MapTiler와 같은 방식으로 CDN에서 싣고 dart:js로 호출한다 — Dart 패키지를 추가하지 않는다.
+
+    ⚠️ SDK 버전 주의: 팝업 로그인(`Kakao.Auth.login`)은 v1 SDK의 API다. v2 SDK(t1.kakaocdn.net)는
+       `Kakao.Auth.authorize()`(리다이렉트) 중심으로 바뀌면서 `login()`이 빠진 버전이 있다.
+       아래 livespotKakaoLogin()은 `Kakao.Auth.login`이 없으면 **조용히 실패하지 않고**
+       그 사실을 그대로 앱에 알린다(빈 화면 대신 원인이 보이게). 팝업이 막히면 대안은
+       01_spec Q1-A(서버 주도 리다이렉트)이고, 그건 백엔드 엔드포인트 추가가 필요하다.
+  -->
+  <script src="https://developers.kakao.com/sdk/js/kakao.js"></script>
+  <script>
+    // Flutter(dart:js)가 부르는 진입점. 카카오 JavaScript 키는 앱이 --dart-define으로
+    // 받아 인자로 넘긴다 — 이 파일에 키를 적어두지 않는다(빌드 환경마다 값이 다르다).
+    //
+    // 결과는 window.livespotKakaoOnSuccess / livespotKakaoOnFail 콜백으로 돌려준다
+    // (Dart 쪽에서 js.context에 심어둔 함수). MapTiler의 onSpotMarkerClick과 같은 패턴이다.
+    function livespotKakaoLogin(jsKey) {
+      function fail(message) {
+        if (window.livespotKakaoOnFail) window.livespotKakaoOnFail(String(message));
+      }
+
+      if (typeof Kakao === 'undefined') {
+        fail('카카오 SDK를 불러오지 못했어요. 네트워크 연결을 확인해 주세요.');
+        return;
+      }
+      if (!jsKey) {
+        fail('카카오 JavaScript 키가 설정되지 않았어요. --dart-define=KAKAO_JS_KEY=... 로 빌드해 주세요.');
+        return;
+      }
+
+      try {
+        // init은 1회만. 이미 초기화됐는데 다시 부르면 예외가 난다.
+        if (!Kakao.isInitialized()) Kakao.init(jsKey);
+      } catch (e) {
+        fail('카카오 SDK 초기화 실패: ' + e.message);
+        return;
+      }
+
+      if (!Kakao.Auth || typeof Kakao.Auth.login !== 'function') {
+        fail('이 카카오 SDK 버전에는 팝업 로그인(Auth.login)이 없습니다. web/index.html의 SDK 버전을 확인해 주세요.');
+        return;
+      }
+
+      // 동의항목을 요청하지 않는다 — 카카오는 신원 확인 전용이다(01_spec P34~P37).
+      // 닉네임은 앱에서 사용자가 직접 정하고, 프로필 사진은 받지 않는다.
+      // scope 키를 다시 넣지 말 것: 콘솔에 없는 동의항목을 요청하면 카카오가
+      // KOE205로 인가 요청 자체를 거부해 로그인이 전면 실패한다.
+      // (SDK의 makeAuthParams()는 scope가 falsy면 파라미터를 아예 보내지 않는다.)
+      Kakao.Auth.login({
+        success: function (authObj) {
+          var token = authObj && authObj.access_token;
+          if (!token) {
+            fail('카카오가 액세스 토큰을 돌려주지 않았어요.');
+            return;
+          }
+          if (window.livespotKakaoOnSuccess) window.livespotKakaoOnSuccess(token);
+        },
+        fail: function (err) {
+          // 사용자가 팝업을 닫은 경우도 여기로 온다 — 앱이 "취소"로 구분할 수 있게
+          // 카카오가 준 error 코드를 그대로 넘긴다.
+          var code = (err && (err.error || err.error_code)) || '';
+          var desc = (err && (err.error_description || err.error_msg)) || '';
+          fail(code + (desc ? (': ' + desc) : ''));
+        },
+      });
+    }
+
+    // 로그아웃 시 SDK가 들고 있는 카카오 토큰도 버린다. 우리 JWT를 지우는 것과 별개로,
+    // SDK에 토큰이 남아 있으면 다음 로그인에서 팝업 없이 이전 계정으로 붙을 수 있다.
+    function livespotKakaoClearSession() {
+      try {
+        if (typeof Kakao !== 'undefined' && Kakao.Auth && Kakao.Auth.getAccessToken()) {
+          Kakao.Auth.logout();
+        }
+      } catch (e) {
+        // 로그아웃의 본체는 우리 토큰 삭제다. SDK 정리 실패로 그걸 막지 않는다.
+      }
+    }
+  </script>
+
   <!-- MapTiler SDK JS (WebGL 기반, Leaflet/iframe 미사용) -->
   <link rel="stylesheet" href="https://cdn.maptiler.com/maptiler-sdk-js/latest/maptiler-sdk.css" />
   <script src="https://cdn.maptiler.com/maptiler-sdk-js/latest/maptiler-sdk.umd.min.js"></script>

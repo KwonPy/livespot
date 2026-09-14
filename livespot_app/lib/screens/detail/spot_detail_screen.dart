@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../models/spot.dart';
 import '../../models/report.dart';
 import '../../models/live_status.dart';
@@ -12,9 +13,11 @@ import '../../config/constants.dart';
 import '../../utils/image_url.dart';
 import '../../services/mock_data_service.dart';
 import '../../services/api_service.dart';
+import '../../services/auth_service.dart';
 import '../../services/location_service.dart';
 import '../../utils/formatters.dart';
 import '../../widgets/gps_verified_badge.dart';
+import '../../widgets/login_required_sheet.dart';
 import '../../widgets/quick_report_modal.dart';
 import '../../widgets/crowdedness_badge.dart';
 import '../../widgets/weather_badge.dart';
@@ -99,6 +102,10 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
   // presence_registered:false로 응답한다(P9). 사용자가 누르지도 않은 동작의 실패를
   // 다이얼로그로 알리면, 정상 상황이 오류로 보고된다.
   Future<void> _sendPresenceSignal() async {
+    // 위치 신호는 presence 1행을 쓰는 **쓰기**라 비로그인은 401이다(Q5-B·계약 2절).
+    // 비로그인 사용자는 현장 인원에 잡히지 않는다 — 알려진 대가이고, GPS 권한 팝업을
+    // 띄우고 나서 401로 버리는 것보다 아예 시작하지 않는 편이 낫다.
+    if (!AuthService().hasServerIdentity) return;
     try {
       final position = await _locationService.getCurrentPosition();
       final result = await ApiService().verifyLocation(
@@ -239,6 +246,11 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
   // 관광지별 자동 제보 유도 알림(기능 2) on/off 상태. 실패해도 화면은 살아있어야 하므로
   // 조회 실패 시 OFF로 간주한다.
   Future<void> _fetchPushSetting() async {
+    // `/api/notifications/settings`도 로그인 필요 목록에 포함된다(계약 2절).
+    if (!AuthService().hasServerIdentity) {
+      if (mounted) setState(() => _pushEnabled = false);
+      return;
+    }
     try {
       final setting = await ApiService().fetchNotificationSetting(widget.spot.contentId);
       if (mounted) setState(() => _pushEnabled = setting.pushEnabled);
@@ -248,6 +260,9 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
   }
 
   Future<void> _togglePushSetting() async {
+    // 알림 설정 저장도 쓰기다 — 비로그인은 401.
+    if (!await ensureLoggedIn(context, actionLabel: '제보 알림 설정')) return;
+    if (!mounted) return;
     final next = !(_pushEnabled ?? false);
     setState(() => _pushEnabled = next); // 낙관적 반영
     try {
@@ -270,6 +285,12 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
   // 조회 실패 시 알림 설정과 같은 방침으로 "북마크 안 됨"으로 간주한다 —
   // 화면은 살아있어야 하고, 잘못 눌러도 서버가 멱등이라 데이터가 깨지지 않는다.
   Future<void> _fetchBookmarkState() async {
+    // 비로그인이면 `/api/bookmarks`가 401이다(계약 2절) — 호출하지 않는다. 결과는 같지만
+    // (북마크 안 됨) 실패할 것이 뻔한 요청을 보내고 예외를 삼키는 경로를 남기지 않는다.
+    if (!AuthService().hasServerIdentity) {
+      if (mounted) setState(() => _bookmarked = false);
+      return;
+    }
     try {
       final bookmarks = await ApiService().fetchBookmarks();
       if (mounted) {
@@ -283,6 +304,11 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
 
   // _togglePushSetting과 같은 형태 — 낙관적 반영 → 실패 시 롤백 + SnackBar.
   Future<void> _toggleBookmark() async {
+    // 북마크도 쓰기라 로그인 필수다(Q5-C — function.md의 표에는 없던 항목이라 빠뜨리기 쉽다).
+    // 낙관적 반영보다 **먼저** 막는다. 순서가 반대면 비로그인 사용자의 아이콘이 잠깐
+    // 채워졌다가 401로 되돌아가 깜빡인다.
+    if (!await ensureLoggedIn(context, actionLabel: '북마크')) return;
+    if (!mounted) return;
     final next = !(_bookmarked ?? false);
     setState(() => _bookmarked = next); // 낙관적 반영
     try {
@@ -934,7 +960,7 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: () {},
+              onPressed: _hasCoordinates ? _openKakaoMap : null,
               icon: const Icon(Icons.directions),
               label: const Text('카카오맵으로 길찾기'),
               style: OutlinedButton.styleFrom(foregroundColor: LiveSpotTheme.primaryColor, side: const BorderSide(color: LiveSpotTheme.primaryColor), padding: const EdgeInsets.symmetric(vertical: 12), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
@@ -943,6 +969,25 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
         ],
       ),
     );
+  }
+
+  // 위도·경도가 없는 관광지(TourAPI 원본 데이터 누락)에서는 버튼을 비활성화한다 —
+  // URL이 "이름,null,null"로 만들어져 카카오맵이 오류 페이지를 띄우는 것을 막는다.
+  bool get _hasCoordinates => widget.spot.latitude != null && widget.spot.longitude != null;
+
+  // SDK 연동 없이 카카오맵 웹 링크 규격(map.kakao.com/link/map/이름,위도,경도)만 사용한다.
+  Future<void> _openKakaoMap() async {
+    if (!_hasCoordinates) return;
+    final uri = Uri.parse(
+      'https://map.kakao.com/link/map/'
+      '${Uri.encodeComponent(widget.spot.title)},${widget.spot.latitude},${widget.spot.longitude}',
+    );
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('카카오맵을 열지 못했어요.', style: TextStyle(fontFamily: 'Pretendard'))),
+      );
+    }
   }
 
   Widget _infoRow(IconData icon, String label, String value) {
@@ -1034,6 +1079,9 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
 
   // ── 제보 모달 ──
   void _showReportModal(BuildContext context) async {
+    // 제보는 로그인 필수(Q5-C·AC2). 버튼을 숨기지 않고 눌리게 두되 유도 시트로 보낸다.
+    if (!await ensureLoggedIn(context, actionLabel: '현장 제보')) return;
+    if (!context.mounted) return;
     final result = await showModalBottomSheet<Report>(
       context: context,
       isScrollControlled: true,

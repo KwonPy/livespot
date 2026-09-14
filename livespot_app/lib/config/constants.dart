@@ -6,6 +6,24 @@ class AppConstants {
     defaultValue: 'http://127.0.0.1:8000/api',
   );
 
+  // 카카오 로그인(기능 9)의 JavaScript 키.
+  //
+  // **이 값은 프론트 전용이다.** 백엔드는 카카오 앱 키를 하나도 읽지 않는다(백엔드 계약
+  // 4-4·7절 8번) — 서버는 앱이 넘겨준 카카오 access token을 kapi.kakao.com에 되물어
+  // 검증할 뿐이라 키가 필요 없다. 따라서 이 값을 .env에 넣지 말고 빌드 시 주입한다:
+  //   flutter run -d chrome --dart-define=KAKAO_JS_KEY=<카카오 JavaScript 키>
+  //
+  // JS 키가 클라이언트에 노출되는 것은 카카오 설계상 정상이며, 보호 수단은 카카오 콘솔의
+  // **사이트 도메인 등록**이다(운영 도메인 + localhost 2개). Client Secret은 이 흐름에서
+  // 쓰지 않는다(Q1-B).
+  //
+  // 기본값이 빈 문자열인 것은 **키 미발급 상태에서도 앱이 떠야 하기 때문**이다(계약 7절 8번).
+  // 값이 비어 있으면 로그인 버튼이 팝업을 여는 대신 안내 문구를 띄운다 — 크래시하지 않는다.
+  static const String kakaoJsKey = String.fromEnvironment('KAKAO_JS_KEY', defaultValue: '');
+
+  /// 카카오 로그인을 시도할 수 있는 빌드인지. 화면은 이 값만 보고 분기한다.
+  static bool get hasKakaoJsKey => kakaoJsKey.isNotEmpty;
+
   // 자동 제보 유도 알림 (앱이 foreground일 때만 동작 — 백그라운드/OS Geofencing 없음)
   static const double proximityAlertRadiusM = 50; // 관광지 반경 50m 이내 진입 시 알림
   static const Duration proximityAlertCooldown = Duration(hours: 2); // 같은 관광지 재알림 최소 간격

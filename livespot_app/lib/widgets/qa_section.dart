@@ -5,6 +5,7 @@ import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../utils/formatters.dart';
 import 'ask_question_modal.dart';
+import 'login_required_sheet.dart';
 import 'onsite_answer_modal.dart';
 import 'question_detail_sheet.dart';
 
@@ -54,6 +55,9 @@ class _QaSectionState extends State<QaSection> {
   }
 
   Future<void> _openAskModal() async {
+    // 질문 작성은 로그인 필수(P3·AC2). 버튼은 그대로 두고 유도 시트를 띄운다(Q5-C).
+    if (!await ensureLoggedIn(context, actionLabel: '질문 작성')) return;
+    if (!mounted) return;
     final question = await showModalBottomSheet<Question>(
       context: context,
       isScrollControlled: true,
@@ -77,6 +81,10 @@ class _QaSectionState extends State<QaSection> {
   // 서버가 돌려준 오류 메시지를 그대로 보여준다.
   Future<void> _openAnswerModal(Question question) async {
     if (_answering) return;
+    // 답변도 로그인 필수(P3·AC2). GPS 조회보다 **먼저** 막는다 — 어차피 로그인 시트를
+    // 보게 될 사용자에게 위치 권한 팝업부터 요구하지 않기 위해서다.
+    if (!await ensureLoggedIn(context, actionLabel: '답변 작성')) return;
+    if (!mounted) return;
     setState(() => _answering = true);
     try {
       final position = await _locationService.getCurrentPosition();

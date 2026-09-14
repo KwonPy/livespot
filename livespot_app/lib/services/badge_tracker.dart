@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/credit_summary.dart';
 import 'api_service.dart';
+import 'auth_service.dart';
 
 /// 뱃지 승급 감지.
 ///
@@ -10,8 +11,19 @@ import 'api_service.dart';
 class BadgeTracker {
   static const _prefsKeyPrefix = 'last_seen_badge_code';
 
-  /// 테스트유저 전환(TEST_MODE) 시 사람마다 등급이 다르므로 키를 사용자별로 분리한다.
-  static String _prefsKey() => '$_prefsKeyPrefix:${ApiService.testUserId ?? 'default'}';
+  /// 사람마다 등급이 다르므로 키를 **사용자별로** 분리한다.
+  ///
+  /// 신원 판정 순서는 `app.dart`의 `_currentIdentity`·서버 `deps.py`와 같다 —
+  /// ①로그인 `user_id` ②테스트유저 헤더. 기능 9 전에는 ②밖에 없어서, 카카오로
+  /// 로그인한 사용자가 전부 `…:default` 한 칸을 공유했다(QA 1회차 F3): 계정 A로 쓰다
+  /// B로 로그인하면 B가 원래 갖고 있던 등급을 "방금 승급"으로 축하하거나, 반대로
+  /// B의 진짜 승급이 조용히 넘어갔다.
+  ///
+  /// 호출 시점마다 계산하므로 사용자 전환에 별도 초기화 훅이 필요 없다 —
+  /// [BadgeTracker]는 메모리 상태를 들고 있지 않고, 기준값은 전부 이 키 아래에 있다.
+  /// (`NotificationService.resetForUserSwitch`가 하는 일이 여기서는 필요 없는 이유다.)
+  static String _prefsKey() =>
+      '$_prefsKeyPrefix:${AuthService().user?.userId ?? ApiService.testUserId ?? 'anonymous'}';
 
   /// 방금 승급했으면 새 [CreditBadge]를, 아니면(첫 조회 포함) `null`을 돌려준다.
   ///

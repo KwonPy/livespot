@@ -9,7 +9,12 @@ pydantic-settings==2.5.0
 aiohttp==3.10.0
 google-genai==1.46.0
 python-dotenv==1.0.1
-firebase-admin==6.5.0
+# 자체 발급 JWT(기능 9 / Q2-A). services/auth_token.py에서만 import한다.
+PyJWT==2.9.0
+# `firebase-admin==6.5.0`은 2026-09-14에 제거했다. 설치돼 있었지만 **import하는 파일이 0개**였고,
+# 남겨 둔 이유였던 "카카오 → Firebase Custom Token" 다리(function.md:95)를 폐기했다(Q2-A, 쟁점 A).
+# Firebase가 필요했던 진짜 이유는 FCM 푸시인데 P21(모바일 웹)·P13(채널 중립 스키마)로 범위 밖이 됐다.
+# 되살릴 일이 생기면 패키지만 되돌려서는 안 되고 Firebase 프로젝트·서비스 계정 키가 함께 와야 한다.
 python-multipart==0.0.9
 sqlalchemy==2.0.35
 alembic==1.13.3

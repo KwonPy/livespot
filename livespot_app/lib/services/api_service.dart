@@ -18,6 +18,41 @@ import '../models/my_question_entry.dart';
 import '../models/my_answer_entry.dart';
 import '../models/bookmark_entry.dart';
 import '../models/app_notification.dart';
+import '../models/auth_user.dart';
+import '../models/login_result.dart';
+import '../models/nickname_availability.dart';
+
+/// 서버가 "너를 식별할 수 없다"고 답한 경우(HTTP 401).
+///
+/// **네트워크 실패와 반드시 구분해야 한다.** 토큰 복원(P19) 중 401이면 조용히 로그아웃
+/// 상태로 넘어가지만(P20), 서버가 잠깐 죽었거나 와이파이가 끊긴 것뿐이라면 저장된 토큰을
+/// 지우면 안 된다 — 사용자는 아무 잘못 없이 다시 로그인해야 한다. 두 경우를 한 `Exception`
+/// 으로 뭉개면 이 구분이 불가능하다.
+class UnauthorizedException implements Exception {
+  final String message;
+
+  const UnauthorizedException(this.message);
+
+  @override
+  String toString() => message;
+}
+
+/// 서버가 "너는 로그인했지만 아직 닉네임이 없다"고 답한 경우(HTTP 403 + 본문의
+/// `detail.code == "NICKNAME_REQUIRED"`).
+///
+/// **상태코드로 판정하지 않는다.** 403은 이 앱에서 이미 두 가지 다른 뜻으로 쓰인다 —
+/// 남의 질문/답변을 수정하려 함(`questions.py:242,260`), GPS 반경 밖 제보(`reports.py:77`).
+/// 둘 다 `detail`이 **문자열**이고 닉네임 쪽만 **dict**라, 계약이 그 차이를 판정 근거로
+/// 삼는다(백엔드 계약 0절 F3). 403만 보고 닉네임 화면을 띄우면 "현재 위치에서 320m
+/// 떨어져 있어요"가 닉네임 설정 화면으로 둔갑한다.
+class NicknameRequiredException implements Exception {
+  final String message;
+
+  const NicknameRequiredException(this.message);
+
+  @override
+  String toString() => message;
+}
 
 class ApiService {
   late final Dio _dio;
@@ -29,6 +64,12 @@ class ApiService {
   // 프로필 화면의 테스트유저 드롭다운에서 설정한다. 운영 빌드에서는 null로 유지하면 된다.
   static String? testUserId;
 
+  /// 로그인으로 받은 우리 JWT(기능 9). null이면 비로그인이다.
+  ///
+  /// 주입 지점은 아래 인터셉터 **한 곳**이므로 40여 개 호출 메서드는 이 값의 존재를 모른다.
+  /// 저장·복원은 [AuthService]가 담당한다 — 여기서 shared_preferences를 직접 읽지 않는다.
+  static String? accessToken;
+
   ApiService._internal() {
     _dio = Dio(BaseOptions(
       baseUrl: AppConstants.apiBaseUrl,
@@ -37,8 +78,17 @@ class ApiService {
       receiveTimeout: const Duration(seconds: 8),
     ));
 
+    // 인증 주입 지점 — 앱 전체에서 여기 하나뿐이다.
+    //
+    // 우선순위는 서버(`deps.py`, 계약 2절)와 **같은 순서**로 맞춘다: 토큰이 있으면 토큰,
+    // 없을 때만 테스트유저 헤더. 둘을 동시에 보내면 서버는 토큰을 택하지만, 앱이 두 개를
+    // 다 보내고 있으면 "화면에는 내 닉네임이 뜨는데 제보는 test_user로 저장되는" 상황이
+    // 생겼을 때 어느 쪽이 이겼는지 요청만 봐서는 알 수 없다. 하나만 보낸다.
     _dio.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) {
-      if (testUserId != null) {
+      final token = accessToken;
+      if (token != null) {
+        options.headers['Authorization'] = 'Bearer $token';
+      } else if (testUserId != null) {
         options.headers['X-Test-User-Id'] = testUserId;
       }
       handler.next(options);
@@ -52,6 +102,111 @@ class ApiService {
       responseBody: true,
       error: true,
     ));
+  }
+
+  // ---------------------------------------------------------------------------
+  // 인증(기능 9)
+  //
+  // 로그아웃 API는 **없다**(백엔드 계약 3절). 30일 단일 토큰이라 서버가 무효화할 수단이
+  // 없고, 200만 돌려주는 엔드포인트를 두면 "서버에서 세션이 끊겼다"는 오해를 부른다.
+  // 로그아웃은 전적으로 클라이언트가 토큰을 지우는 것이다 — [AuthService.logout] 참고.
+  // ---------------------------------------------------------------------------
+
+  /// 카카오 access token을 우리 JWT로 교환한다(`POST /api/auth/kakao`).
+  ///
+  /// 이 요청에는 인증 헤더가 붙지 않는다 — 인증을 **만드는** 입구다.
+  ///
+  /// 401(카카오가 토큰을 거부)과 502(카카오 서버 장애)를 뭉개지 않는다. 502를 401로
+  /// 보여주면 앱이 "다시 로그인하세요"를 띄우는데 사용자가 몇 번을 눌러도 되지 않는다
+  /// (원인이 네트워크이므로). 서버가 준 detail 문구를 그대로 올린다.
+  Future<LoginResult> loginWithKakao(String kakaoAccessToken) async {
+    try {
+      final response = await _dio.post(
+        '/auth/kakao',
+        data: {'kakao_access_token': kakaoAccessToken},
+      );
+      return LoginResult.fromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      throw _apiError(e);
+    }
+  }
+
+  /// 저장된 토큰으로 내 정보를 읽는다(`GET /api/auth/me`). 자동 로그인 복원(P19)의 검증 경로.
+  ///
+  /// 응답 본문은 감싸는 키 없이 `AuthUser` 그대로다(계약 1절).
+  ///
+  /// 401이면 [UnauthorizedException]을 던진다 — 호출부가 "토큰이 죽었다(지운다)"와
+  /// "지금 서버에 못 닿았다(토큰은 남긴다)"를 갈라야 하기 때문이다.
+  Future<AuthUser> fetchMe() async {
+    try {
+      final response = await _dio.get('/auth/me');
+      return AuthUser.fromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        throw UnauthorizedException(_extractErrorMessage(e));
+      }
+      throw _apiError(e);
+    }
+  }
+
+  /// 앱 닉네임을 확정한다(`PUT /api/auth/me/nickname`).
+  ///
+  /// 응답은 **`AuthUser` 전체**라 성공 후 `/auth/me`를 다시 부를 필요가 없다(계약 3절).
+  /// 최초 설정과 변경을 같은 엔드포인트가 처리하고, **같은 값을 다시 보내면 200**이다
+  /// (멱등 — `bookmarks.py` 규약).
+  ///
+  /// 실패는 서버가 준 한국어 `detail`을 그대로 담아 던진다. 앱이 문구를 만들지 않는다:
+  ///   - `400` 형식 위반 — `"닉네임은 2자 이상 12자 이하로 입력해 주세요"` 등
+  ///   - `409` 중복    — `"이미 사용 중인 닉네임이에요"`
+  ///   - `401` 비로그인 — 이 화면에 도달할 수 없는 상태지만 방어적으로 남긴다
+  ///
+  /// ⚠️ [checkNicknameAvailable]이 초록불이었어도 **여기서 409가 날 수 있다.** 확인과
+  /// 제출 사이에 남이 같은 닉네임을 선점할 수 있고, 그 경합은 서버만 닫을 수 있다.
+  Future<AuthUser> updateNickname(String nickname) async {
+    try {
+      final response = await _dio.put('/auth/me/nickname', data: {'nickname': nickname});
+      return AuthUser.fromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        throw UnauthorizedException(_extractErrorMessage(e));
+      }
+      throw _apiError(e);
+    }
+  }
+
+  /// 입력 중인 닉네임을 쓸 수 있는지 미리 묻는다(`GET /api/auth/nickname-available`).
+  ///
+  /// **로그인 불필요**하고, 형식 위반도 **200**으로 답한다(400이 아니다) — 타이핑 도중의
+  /// 1자 상태는 에러가 아니라 아직 판정할 수 없는 상태다(계약 3절).
+  ///
+  /// 응답의 `nickname`은 **서버가 정규화한 결과**(strip + NFC)라 보낸 값과 다를 수 있다.
+  /// 실제로 저장·비교되는 값은 그쪽이다(P30).
+  ///
+  /// ⚠️ **이 결과는 조언일 뿐 확정이 아니다.** [updateNickname]의 409 처리를 대체하지 않는다.
+  Future<NicknameAvailability> checkNicknameAvailable(String nickname) async {
+    try {
+      final response = await _dio.get(
+        '/auth/nickname-available',
+        queryParameters: {'nickname': nickname},
+      );
+      return NicknameAvailability.fromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      throw _apiError(e);
+    }
+  }
+
+  /// 개발/QA 전용(`POST /api/dev/login-as/{user_id}`). 서버 TEST_MODE가 꺼져 있으면 404다.
+  ///
+  /// 카카오 키가 없어도 **진짜 JWT**를 받아 로그인 이후 화면(프로필 카드·로그아웃·게이트
+  /// 해제·WS `?token=`)을 그대로 검증할 수 있다(계약 7절 9번). 응답 모양은 `/auth/kakao`와
+  /// 완전히 같아 [LoginResult]를 공유한다.
+  Future<LoginResult> devLoginAs(String userId) async {
+    try {
+      final response = await _dio.post('/dev/login-as/$userId');
+      return LoginResult.fromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      throw _apiError(e);
+    }
   }
 
   Future<List<Spot>> fetchSpots() async {
@@ -147,7 +302,7 @@ class ApiService {
       });
       return Report.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
-      throw Exception(_extractErrorMessage(e));
+      throw _apiError(e);
     }
   }
 
@@ -265,7 +420,7 @@ class ApiService {
       });
       return Question.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
-      throw Exception(_extractErrorMessage(e));
+      throw _apiError(e);
     }
   }
 
@@ -310,7 +465,7 @@ class ApiService {
       });
       return Answer.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
-      throw Exception(_extractErrorMessage(e));
+      throw _apiError(e);
     }
   }
 
@@ -444,7 +599,7 @@ class ApiService {
       );
       return NotificationList.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
-      throw Exception(_extractErrorMessage(e));
+      throw _apiError(e);
     }
   }
 
@@ -455,7 +610,7 @@ class ApiService {
       final response = await _dio.post('/notifications/$notificationId/read');
       return NotificationReadResult.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
-      throw Exception(_extractErrorMessage(e));
+      throw _apiError(e);
     }
   }
 
@@ -465,7 +620,7 @@ class ApiService {
       final response = await _dio.post('/notifications/read-all');
       return NotificationReadResult.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
-      throw Exception(_extractErrorMessage(e));
+      throw _apiError(e);
     }
   }
 
@@ -486,10 +641,40 @@ class ApiService {
     }
   }
 
+  /// `DioException` → 앱 예외로 바꾸는 **단일 지점**.
+  ///
+  /// `on DioException` 블록은 전부 `throw _apiError(e)`만 쓴다. 각 메서드가 직접
+  /// `detail`을 파헤치기 시작하면 "어떤 실패를 호출부가 분기해야 하는가"의 판정이
+  /// 40여 곳으로 흩어진다.
+  ///
+  /// 401은 여기서 변환하지 않는다 — 지금은 [fetchMe]만 그 구분이 필요하고(P19·P20),
+  /// 모든 호출부를 한꺼번에 [UnauthorizedException]에 노출시키면 기존 화면들의 에러
+  /// 문구 처리가 조용히 바뀐다.
+  Exception _apiError(DioException e) {
+    final data = e.response?.data;
+    final detail = data is Map ? data['detail'] : null;
+    // 닉네임 미설정만 detail이 dict다(백엔드 계약 4절). code로 판정한다 — 403 자체는
+    // 이미 다른 뜻으로 쓰이고 있어 상태코드로는 구분되지 않는다.
+    if (detail is Map && detail['code'] == 'NICKNAME_REQUIRED') {
+      return NicknameRequiredException(
+        detail['message'] as String? ?? '닉네임을 먼저 설정해 주세요',
+      );
+    }
+    return Exception(_extractErrorMessage(e));
+  }
+
   String _extractErrorMessage(DioException e) {
     final data = e.response?.data;
     if (data is Map && data['detail'] is String) {
       return data['detail'] as String;
+    }
+    // `detail`이 dict인 경우(닉네임 미설정 403 — 백엔드 계약 4절). 이 분기가 없으면
+    // 한국어 메시지를 들고 있는 403 본문이 통째로 "알 수 없는 오류"로 뭉개진다.
+    if (data is Map && data['detail'] is Map) {
+      final detail = data['detail'] as Map;
+      final message = detail['message'];
+      if (message is String) return message;
+      return detail.toString();
     }
     if (data is Map && data['detail'] is List) {
       final msgs = (data['detail'] as List)

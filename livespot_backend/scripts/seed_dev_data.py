@@ -2,7 +2,7 @@
 
 test_user 30명 + 관광지별로 성격이 다른 제보 시나리오를 넣는다.
 실사용자가 들어온 뒤에도 지우지 않고 개발/데모용으로 계속 남겨둘 데이터이므로,
-firebase_uid를 "seed_user_"로 시작하게 해서 실제 로그인 사용자와 절대 겹치지 않게 하고,
+auth_provider="test"로 표시해 실제 카카오 로그인 사용자와 절대 겹치지 않게 하고,
 몇 번을 다시 실행해도(재배포·재시딩) 행이 중복으로 쌓이지 않도록 멱등하게 만들었다.
 제보(reports)는 LIVE 상태창(기능 5)이 "최근 N시간" 기준으로 판정하므로, 재실행할 때마다
 client_request_id는 유지한 채 created_at을 "지금 기준 N분 전"으로 다시 맞춘다 — 그래야
@@ -23,11 +23,11 @@ from sqlalchemy import select  # noqa: E402
 
 from app.config import settings  # noqa: E402
 from app.db.session import AsyncSessionLocal  # noqa: E402
-from app.db.models.user import User  # noqa: E402
+from app.db.models.user import PROVIDER_TEST, User  # noqa: E402
 from app.db.models.report import Report  # noqa: E402
 
 SEED_USER_COUNT = 30
-SEED_USER_PREFIX = "seed_user_"  # 실제 로그인 사용자(firebase_uid)와 절대 겹치지 않는 접두어
+SEED_USER_PREFIX = "seed_user_"  # users.id와 provider_user_id에 함께 쓰는 접두어(읽기 편하라고 남긴 관례)
 SEED_REQUEST_PREFIX = "seed_report_"
 
 NOW = datetime.utcnow()
@@ -128,9 +128,13 @@ def build_seed_reports() -> list[Report]:
 
 
 async def seed_users(session) -> int:
+    # 2026-09-14(기능 9): `firebase_uid` 컬럼이 `auth_provider` + `provider_user_id`로
+    # 정리되면서(마이그레이션 d3a91f7c2b58) 여기도 함께 바뀌었다. 판정을 접두어 문자열이
+    # 아니라 `auth_provider == 'test'`로 옮겼으므로, 실제 카카오 사용자가 이 조회에
+    # 섞일 여지가 아예 없다(예전에는 접두어가 겹치지 않기를 약속으로만 보장했다).
     existing = set(
         (await session.scalars(
-            select(User.firebase_uid).where(User.firebase_uid.like(f"{SEED_USER_PREFIX}%"))
+            select(User.provider_user_id).where(User.auth_provider == PROVIDER_TEST)
         )).all()
     )
     created = 0
@@ -140,7 +144,8 @@ async def seed_users(session) -> int:
             continue
         session.add(User(
             id=uid,
-            firebase_uid=uid,
+            auth_provider=PROVIDER_TEST,
+            provider_user_id=uid,
             nickname=f"테스트유저{i:02d}",
         ))
         created += 1

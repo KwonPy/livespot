@@ -23,6 +23,7 @@ from app.services.tour_api import TourAPIService
 from app.services.geo import calculate_distance_m
 from app.services import credit as credit_service
 from app.services import notification as notification_service
+from app.services.nickname import display_nickname
 from app.services.spot_lookup import resolve_spot_names
 from app.services.question_query import (
     build_question_response as _to_response,
@@ -169,7 +170,7 @@ async def get_my_questions(
                 id=a.id,
                 question_id=a.question_id,
                 user_id=a.user_id,
-                user_nickname=nickname,
+                user_nickname=display_nickname(nickname),
                 content=a.content,
                 created_at=a.created_at,
             )
@@ -308,7 +309,7 @@ async def create_answer(
         id=answer.id,
         question_id=answer.question_id,
         user_id=answer.user_id,
-        user_nickname=user.nickname,
+        user_nickname=display_nickname(user.nickname),
         content=answer.content,
         created_at=answer.created_at,
     )

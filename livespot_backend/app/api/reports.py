@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from typing import List
+from typing import List, Optional
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +23,7 @@ from app.services.tour_api import TourAPIService
 from app.services.geo import calculate_distance_m
 from app.services import credit as credit_service
 from app.services import presence as presence_service
+from app.services.nickname import display_nickname
 from app.services.question_query import fetch_pending_questions
 from app.services.spot_lookup import resolve_spot_names
 
@@ -30,11 +31,17 @@ router = APIRouter()
 tour_service = TourAPIService()
 
 
-def _to_response(report: Report, nickname: str) -> ReportResponse:
+def _to_response(report: Report, nickname: Optional[str]) -> ReportResponse:
+    """제보 1건 → 응답. 조인해 온 닉네임은 nullable이다(P25).
+
+    `ReportResponse.user_nickname`은 계속 `str`(비-null)이라 폴백을 씌운다(P33).
+    닉네임 미설정 사용자는 제보를 만들 수 없으므로(P28) 실제로는 발동하지 않는다 —
+    발동한다면 목록이 500으로 죽는 대신 한 줄만 "알 수 없음"으로 뜨게 하는 안전장치다.
+    """
     return ReportResponse(
         id=report.id,
         user_id=report.user_id,
-        user_nickname=nickname,
+        user_nickname=display_nickname(nickname),
         spot_content_id=report.spot_content_id,
         crowdedness_level=report.crowdedness_level,
         waiting_time=report.waiting_time,

@@ -187,17 +187,40 @@ class NotificationService extends ChangeNotifier {
   }
 
   /// `AppConstants.apiBaseUrl`(예: `http://127.0.0.1:8000/api`)을 WS 엔드포인트로 바꾼다.
-  /// http→ws, https→wss. 테스트유저 헤더(`X-Test-User-Id`)는 브라우저 WebSocket 핸드셰이크에
-  /// 실어 보낼 수 없으므로 쿼리 파라미터로 대신 전달한다(서버 `notifications.py::notifications_ws`
-  /// 와 같은 규약).
+  /// http→ws, https→wss.
+  ///
+  /// **브라우저 WebSocket은 커스텀 헤더를 실을 수 없다(P14).** `Authorization` 헤더를
+  /// 쓸 수 없으므로 자격증명을 쿼리 파라미터로 보낸다 — 서버가 `deps.resolve_user_id_from_token()`
+  /// 한 곳에서 판정하며, 우선순위는 HTTP와 동일하다(계약 1절 "GET /api/notifications/ws").
+  ///
+  /// ⚠️ **2026-09-14 파라미터명이 바뀌었다: `test_user_id` → `token`.** 예전에는 파라미터가
+  /// 없으면 서버가 조용히 `TEST_USER_ID`로 붙여 줬지만, 지금은 **close code 1008로 거절**한다.
+  /// 옛 이름으로 열면 아무 에러 메시지 없이 연결이 끊기고 폴백 폴링만 도는, 원인을 찾기
+  /// 어려운 상태가 된다.
+  ///
+  /// ⚠️ 알려진 한계: 토큰이 쿼리 문자열에 실려 **서버 액세스 로그에 남는다**(계약 1절 말미).
+  /// 이 채널은 알림 내용을 나르지 않고 빈 신호만 보내므로 노출 가치가 낮다고 판단한 선택이다.
   Uri _buildWsUri() {
     final base = Uri.parse(AppConstants.apiBaseUrl);
     final wsScheme = base.scheme == 'https' ? 'wss' : 'ws';
+
+    // 인터셉터(api_service.dart)와 같은 우선순위: 토큰이 있으면 토큰, 없을 때만 테스트유저.
+    final Map<String, String> params;
+    final token = ApiService.accessToken;
     final testUserId = ApiService.testUserId;
+    if (token != null) {
+      params = {'token': token};
+    } else if (testUserId != null) {
+      params = {'test_user_id': testUserId};
+    } else {
+      // 비로그인 — 서버가 1008로 거절한다. 애초에 start()가 불리지 않는 것이 정상이다(P15).
+      params = const {};
+    }
+
     return base.replace(
       scheme: wsScheme,
       path: '${base.path}/notifications/ws',
-      queryParameters: testUserId != null ? {'test_user_id': testUserId} : const {},
+      queryParameters: params,
     );
   }
 
@@ -230,7 +253,7 @@ class NotificationService extends ChangeNotifier {
     );
   }
 
-  /// 개발/QA용 테스트유저 전환 시. 알림은 사용자별로 완전히 갈리므로 이전 사용자의
+  /// 사용자가 바뀌었을 때(로그인·로그아웃·테스트유저 전환). 알림은 사용자별로 완전히 갈리므로 이전 사용자의
   /// 상태를 그대로 두면 (a) 남의 배지 숫자가 남고 (b) 미읽음 수가 튀면서 배너가
   /// 엉뚱하게 뜬다. 상태를 지우고 곧바로 다시 읽는다.
   ///
@@ -243,6 +266,10 @@ class NotificationService extends ChangeNotifier {
   /// 로그인하는 것과 같다** — 전환 직후 그 사용자에게 이미 와 있는 미읽음은 이번
   /// 세션에서는 처음 보는 것이므로, 콜드 스타트와 달리 배너로 띄워야 한다. 빈 집합을
   /// 기준선으로 주면 다음 폴링에서 현재 미읽음 전부가 "새로 나타난 id"로 판정된다.
+  ///
+  /// **로그아웃에서도 이걸 부른다(P16·AC7).** [stop] 다음에 부르면 상태만 비우고 재연결·
+  /// 재조회는 하지 않는다 — 비로그인으로는 `/api/notifications`가 401이라 부를 이유가
+  /// 없다(P15). 예전에는 아래 `_poll()`이 무조건 나가서 로그아웃 직후 401 요청이 한 번 샜다.
   void resetForUserSwitch() {
     _items = const [];
     _unreadCount = 0;
@@ -253,7 +280,8 @@ class NotificationService extends ChangeNotifier {
     _closeWebSocket();
     _wsReconnectTimer?.cancel();
     _wsReconnectTimer = null;
-    if (!_stopped) _connectWebSocket();
+    if (_stopped) return;
+    _connectWebSocket();
     _poll();
   }
 

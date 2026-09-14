@@ -15,6 +15,7 @@ import '../../widgets/quick_report_modal.dart';
 import '../../widgets/qa_section.dart';
 import '../../widgets/global_qa_list.dart';
 import '../../widgets/gps_verified_badge.dart';
+import '../../widgets/login_required_sheet.dart';
 import '../detail/spot_detail_screen.dart';
 
 enum _GpsMatchStatus { idle, loading, matched, none, error, selecting }
@@ -95,6 +96,18 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
   }
 
   Future<void> _onToggleGps(bool value) async {
+    // 현장 인증은 로그인 필수다 — 이 토글을 켜면 `verify-location`(POST) ·
+    // `/reports/me` · `/questions/me/answers` 세 개가 나가고 비로그인은 전부 401이다(AC2).
+    // 게이트가 없으면 그 401이 `_GpsMatchStatus.error`의 빨간 문구로 보여서, 로그인
+    // 유도 시트(Q5-C)가 뜨지 않는다(QA 1회차 F1).
+    //
+    // **GPS 권한 요청보다 먼저 막는다**(01_spec 1-4절, `:269`의 제보 FAB와 같은 순서).
+    // 순서가 반대면 어차피 못 쓸 사용자에게 위치 권한부터 요구하게 된다.
+    //
+    // 켜는 방향만 막는다. 끄는 동작까지 막으면 로그인이 풀린 뒤 토글을 되돌릴 수 없다.
+    if (value && !await ensureLoggedIn(context, actionLabel: '현장 인증')) return;
+    if (!mounted) return;
+
     setState(() => _isGpsVerified = value);
     _gpsRecheckTimer?.cancel();
     if (value) {
@@ -262,6 +275,11 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
   // 이 탭에서는 대상 관광지가 미리 정해져 있지 않으므로, 현재 위치에서 가장 가까운
   // 관광지를 찾아 그 관광지에 대한 제보 창을 연다.
   Future<void> _openReportModalForNearestSpot(BuildContext context) async {
+    // 제보는 로그인 필수(Q5-C·AC2). 버튼은 숨기지 않고 눌리게 두되 여기서 유도 시트를
+    // 띄운다 — 위치 조회(GPS 권한 팝업)보다 **먼저** 막는다. 순서가 반대면 결국 로그인
+    // 시트를 보게 될 사용자에게 GPS 권한부터 요구하게 된다.
+    if (!await ensureLoggedIn(context, actionLabel: '현장 제보')) return;
+    if (!context.mounted) return;
     try {
       final position = await _locationService.getCurrentPosition();
       final nearby = await _apiService.fetchNearbySpots(position.latitude, position.longitude, radius: 1000);

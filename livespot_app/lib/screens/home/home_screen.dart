@@ -6,6 +6,7 @@ import '../../config/theme.dart';
 import '../../models/spot.dart';
 import '../../services/proximity_alert_service.dart';
 import '../../widgets/bottom_nav_bar.dart';
+import '../../widgets/login_required_sheet.dart';
 import '../../widgets/quick_report_modal.dart';
 import '../map/map_screen.dart';
 import '../live/live_screen.dart';
@@ -102,7 +103,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  void _openQuickReport(Spot spot) {
+  Future<void> _openQuickReport(Spot spot) async {
+    // 제보는 로그인 필수(Q5-C·AC2). 근접 알림에서 들어오는 경로도 예외가 아니다 —
+    // 게이트를 호출부마다 두는 이유가 이것이다(제보 모달은 세 곳에서 열린다).
+    if (!await ensureLoggedIn(context, actionLabel: '현장 제보')) return;
+    if (!mounted) return;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,

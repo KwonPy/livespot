@@ -6,8 +6,35 @@ class Settings(BaseSettings):
     TOUR_API_KEY: str
     OPENWEATHER_API_KEY: Optional[str] = ""
     GEMINI_API_KEY: Optional[str] = ""
-    KAKAO_API_KEY: Optional[str] = ""
-    
+
+    # ── 카카오 로그인 (기능 9) ──
+    # **백엔드는 카카오 "앱 키"를 하나도 쓰지 않는다.** Q1-B(JS SDK 팝업) 방식이라
+    # 카카오와의 인증은 프론트가 JavaScript 키로 하고, 백엔드는 그 결과로 받은
+    # **사용자 access token**을 그대로 kapi.kakao.com에 제시해 검증할 뿐이다(P6).
+    # JavaScript 키는 앱 빌드 시 --dart-define으로 프론트에 넘긴다(.env.example 주석 참고).
+    #
+    # 다만 access token만 검증하면 "다른 카카오 앱에서 발급된 토큰"도 통과한다.
+    # 그래서 /v1/user/access_token_info의 app_id가 우리 앱인지 대조한다.
+    # 비워 두면 이 대조를 건너뛰고 경고 로그만 남긴다(키 발급 전에도 개발이 가능하도록).
+    # 값은 카카오 developers 콘솔 > 내 애플리케이션 > 앱 설정 > 앱 키 화면 상단의 "앱 ID"(숫자).
+    KAKAO_APP_ID: Optional[str] = ""
+
+    # 자체 발급 JWT 서명 키(Q2-A). **실서비스에서는 반드시 .env로 덮어쓸 것** —
+    # 이 값을 아는 사람은 임의의 user_id로 토큰을 위조할 수 있다.
+    # 아래 기본값은 키 없이도 로컬 개발·QA가 돌아가게 하려고 둔 것이고,
+    # 값이 기본값 그대로면 서버 기동 시 auth_token.py가 경고 로그를 남긴다.
+    JWT_SECRET: str = "livespot-local-dev-secret-do-not-use-in-production"
+
+    # 발급 토큰 수명(일). Q6-A: 30일 단일 토큰, refresh 토큰 없음.
+    # 근거 — ⓐ 사용자 확정 요구가 "한 번 로그인하면 상태가 유지될 것"이라 재로그인 주기를
+    # 시연 기간보다 길게 잡아야 한다. ⓑ refresh 방식(Q6-B)은 401 → 갱신 → 재시도 인터셉터가
+    # 필요한데, 이 앱은 알림 폴링(7초)과 WS 재연결이 동시에 돌아 동시다발 401에서 갱신이
+    # 중복 호출되는 경합을 따로 막아야 한다. ⓒ 다루는 개인정보가 카카오 닉네임·프로필
+    # 이미지뿐이고 결제·민감정보가 없다.
+    # 대가: 로그아웃은 클라이언트에서 토큰을 지우는 것일 뿐이고, 서버가 발급된 토큰을
+    # 무효화하지 못한다. 유출 시 노출 창이 30일이다. 짧게 바꾸려면 여기 한 곳만 고친다.
+    AUTH_TOKEN_TTL_DAYS: int = 30
+
     # 지역 필터: "seoul" = 서울만 노출 (운영), "none" = 모든 지역 허용 (개발/테스트)
     SERVICE_AREA_FILTER: str = "none"
 

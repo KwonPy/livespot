@@ -1,8 +1,9 @@
 from fastapi import APIRouter
-from app.api import spots, reviews, reports, notifications, dev, live, questions, credits, bookmarks, images
+from app.api import spots, reviews, reports, notifications, dev, live, questions, credits, bookmarks, images, auth
 
 api_router = APIRouter()
 
+api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(spots.router, prefix="/spots", tags=["spots"])
 api_router.include_router(reviews.router, prefix="/reviews", tags=["reviews"])
 api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
