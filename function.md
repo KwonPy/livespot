@@ -10,7 +10,7 @@
 
 | # | 기능 | 상태 | 기록 |
 |---|---|---|---|
-| 1 | 회원가입 · 로그인 (카카오) | ⬜ 미구현 — 고정 `test_user`로 대체 중, **확정안 있음** | — |
+| 1 | 회원가입 · 로그인 (카카오) | ✅ 구현 — 카카오 로그인 + 서비스 전용 JWT, 앱 전용 unique 닉네임(카카오 닉네임·프로필사진 미사용) | [016](docs/worklogs/016-kakao-login.md) · [017](docs/worklogs/017-app-owned-unique-nickname.md) |
 | 2 | 현장 제보 저장 | ✅ 구현 (Credit 포함) | [002](docs/worklogs/002-report-gps-verification.md) · [010](docs/worklogs/010-credit-badge.md) |
 | 3 | GPS 100m 인증 | ✅ 구현 | [002](docs/worklogs/002-report-gps-verification.md) · [003](docs/worklogs/003-proximity-report-alert.md) |
 | 4 | Credit 보상 | ✅ 구현 (제보 +10 / 답변 +5 / 질문 0) | [010](docs/worklogs/010-credit-badge.md) |
@@ -24,7 +24,7 @@
 | 12 | MyPage | 🟡 부분 구현 — 보상(Credit·뱃지)·내 제보·내 Q&A·북마크는 실데이터 연결. **알림은 2026-09-12에 "내 Q&A"의 3번째 탭으로 통합**(전역 ON/OFF 토글 포함), 별도 알림 메뉴와 죽어 있던 "GPS 인증 설정" 메뉴는 **제거**. 위치 권한·계정(로그아웃)은 아직 죽은 메뉴 | [011](docs/worklogs/011-bookmarks-and-weather-badge.md) · [014](docs/worklogs/014-question-answer-notification.md) |
 | — | 관광지 조회 · 지도 | ✅ 구현 (대표이미지 CORS 프록시 포함) | [001](docs/worklogs/001-tourapi-spots.md) · [011](docs/worklogs/011-bookmarks-and-weather-badge.md) |
 
-**핵심 구간(제보 → LIVE → Q&A)에 이어 Credit·뱃지·현장 인원 집계도 끝났고, MyPage도 절반은 실데이터로 채워졌다.** **질문/답변 알림(기능 8)도 인앱 범위에서 끝났다** — 현장 인원 집계(기능 6)의 `get_onsite_user_ids()`를 그대로 재사용해 대상을 판정하므로, 화면의 "현장 N명"과 알림 대상이 어긋나지 않는다. 남은 것은 AI 브리핑 · 로그인 · MyPage 잔여 메뉴(위치 권한·계정) · 실제 Web Push. 이 중 로그인/MyPage는 정책 확정안이 나와 있다 (4장).
+**핵심 구간(제보 → LIVE → Q&A)에 이어 Credit·뱃지·현장 인원 집계도 끝났고, MyPage도 절반은 실데이터로 채워졌다.** **질문/답변 알림(기능 8)도 인앱 범위에서 끝났다** — 현장 인원 집계(기능 6)의 `get_onsite_user_ids()`를 그대로 재사용해 대상을 판정하므로, 화면의 "현장 N명"과 알림 대상이 어긋나지 않는다. **로그인(기능 1)도 카카오 + 앱 전용 unique 닉네임으로 끝났다** — 더 이상 고정 `test_user`가 아니라 실제 다중 사용자다. 남은 것은 AI 브리핑 · MyPage 잔여 메뉴(위치 권한·계정) · 실제 Web Push.
 
 > ⚠️ **아래 "기능 8. 푸시 알림" 절(FCM 통일 · `device_tokens`/`push_jobs`/`push_log` 테이블 · 대기열+워커 · 발송 상한 3종 · 알림 30분 만료)은 설계 시점 문서이고 전부 폐기됐다.** 실제로 채택된 정책은 [014 일지](docs/worklogs/014-question-answer-notification.md) 9절이다 — 인앱 폴링(큐·워커 없음), 테이블은 `notifications`/`user_notification_settings`/`push_subscriptions`, 발송 상한 없음, 만료는 연결된 질문의 2시간. **충돌하면 일지가 이긴다.**
 
@@ -78,7 +78,9 @@
 
 ## 4. 남은 기능 설계
 
-### 기능 1. 로그인 (카카오) — 구현 순서상 **맨 마지막**
+> ⚠️ **기능 1(로그인)은 구현 완료됐다.** 아래 절은 설계 시점 문서라 실제 구현과 다른 부분이 있다 — Firebase 브리지 없이 서버가 직접 카카오 토큰을 검증하고 자체 JWT를 발급하며(Firebase Auth 미사용), 카카오 닉네임·프로필 사진은 아예 받지 않고 앱 전용 unique 닉네임을 별도로 받는다. **실제 정책·구현은 [016](docs/worklogs/016-kakao-login.md)·[017](docs/worklogs/017-app-owned-unique-nickname.md) 일지가 이긴다.** 비로그인/로그인 필요 구간 구분표는 아래 그대로 유효하다.
+
+### 기능 1. 로그인 (카카오) — 설계 시점 원안 (구현 완료, 위 경고 참고)
 
 **확정안**: 로그인 수단은 **카카오 하나만** 제공한다 (구글·이메일 등 추가 없음). 원칙은:
 
@@ -90,12 +92,7 @@
 |---|---|
 | 관광지 검색·지도·상세정보, 날씨, 혼잡도/현장 인원, AI 브리핑, 질문 조회 | 현장 제보, 질문 작성, 질문 답변, 실시간 채팅 참여, MyPage, Push 알림 설정 |
 
-지금은 `app/api/deps.py`의 `get_current_user_id()`가 항상 고정 `test_user`를 돌려준다. 실제 로그인은 이 함수 하나를 교체하는 작업이다.
-
-- 카카오는 Firebase가 직접 지원하지 않는다 → `앱 → 카카오 로그인 → 서버가 카카오에 확인 → Firebase 토큰 발급` 다리가 하나 필요하다.
-- 로그인한 사용자는 서비스 내부 `user_id`를 발급받아 관리한다 (카카오 ID를 그대로 노출하지 않음).
-- 비로그인 '둘러보기'는 유지(읽기만). 쓰기는 로그인 필수.
-- `firebase-admin`은 이미 설치돼 있다.
+로그인한 사용자는 서비스 내부 `user_id`를 발급받아 관리한다 (카카오 ID를 그대로 노출하지 않음). 비로그인 '둘러보기'는 유지(읽기만). 쓰기는 로그인 필수.
 
 ### 기능 4. Credit 보상
 
@@ -214,7 +211,7 @@
 | Q&A ✅ | `POST /questions` · `GET /questions?spot_content_id=` · `GET /questions/recent` · `POST /questions/{id}/answers` |
 | 개발용 ✅ | `GET /dev/test-users` (TEST_MODE 전용) |
 | 레거시 ⚠️ | `GET /spots/{id}/crowdedness` · `/{id}/briefing` — 앱 미사용, 정리 대상 |
-| 로그인 ⬜ | 세션 생성, 카카오 토큰 교환, 내 정보·내 활동 |
+| 로그인 ✅ | `POST /auth/kakao` · `GET /auth/me` · `PUT /auth/me/nickname` · `GET /auth/nickname-available` · `POST /dev/login-as/{user_id}`(TEST_MODE 전용) |
 | Credit ⬜ | 잔액·내역 조회 |
 | 푸시 ⬜ | 기기 토큰 등록·해제 |
 
@@ -232,9 +229,7 @@
 | | 6. AI 브리핑 | 1일 | 진짜 Gemini 브리핑 (혼잡도 분리는 이미 완료) |
 | | 7. 푸시 | 2일 | 알림 발송. 대상 명단은 기능 6의 `get_onsite_user_ids()` 재사용 (웹 도달률 제약) |
 | | 8. 운영 정비 | 2일 | 신고·제한·보관정책·배포 |
-| | 9. 로그인 (실제) | 1.5일 | `test_user` 하드코딩 제거, 다중 사용자 |
-
-**로그인을 맨 뒤로 미루는 이유** — 앱의 실제 가치(제보·LIVE·Q&A·Credit)를 먼저 증명하고, 로그인은 그 위에 씌우는 계층이기 때문. `users` 테이블 스키마는 이미 있어서 마지막에 `deps.py` 하나만 교체하면 된다.
+| ✅ | 9. 로그인 (실제) | — | **완료** — 카카오 로그인 + 앱 전용 unique 닉네임, `test_user` 하드코딩 제거·다중 사용자 ([016](docs/worklogs/016-kakao-login.md) · [017](docs/worklogs/017-app-owned-unique-nickname.md)) |
 
 ---
 

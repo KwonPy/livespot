@@ -30,7 +30,7 @@
 | 🌤️ **날씨** | Open-Meteo 기반 실시간 날씨 배지, API 키 불필요 (상세페이지 헤더) | ✅ |
 | 🤖 **AI 브리핑** | Gemini 기반 현장 요약. 예측(집중률)·실측(제보)을 섞지 않고 별도 라벨로 제시 | ✅ |
 | 💎 **Credit 보상** | 제보 +10 / 답변 +5. 누적 Credit에 따라 새싹🌱~마스터👑 5단계 뱃지 자동 부여 (현금성 리워드·교환은 범위 밖) | ✅ |
-| 🔐 **카카오 로그인** | 현재는 고정 `test_user`로 동작 | ⬜ |
+| 🔐 **카카오 로그인** | 카카오로 로그인 → 서버가 자체 JWT 발급, 로그인 상태 유지. 앱 전용 unique 닉네임을 직접 설정(카카오 닉네임·프로필사진 미사용) | ✅ |
 
 ---
 
@@ -44,7 +44,7 @@
 | 지도 | MapTiler SDK JS (`web/index.html`에서 CDN 로드) |
 | 공공데이터 | TourAPI(KorService2), 관광지 집중률(TatsCnctrRateService), 관광사진 갤러리 |
 | AI · 날씨 | Google Gemini, Open-Meteo(날씨 연동 완료, API 키 불필요) |
-| 인증 | Firebase Auth + 카카오 *(예정)* |
+| 인증 | 카카오 로그인 + 서비스 자체 JWT (`PyJWT`) |
 | 배포 | Railway — 백엔드(FastAPI, Postgres) + 프론트(Flutter 웹, nginx) 각각 컨테이너로 배포 |
 
 ---
@@ -115,7 +115,7 @@ Railway에 백엔드(FastAPI + Postgres)와 프론트(Flutter 웹, nginx)를 각
 - `livespot_app/Dockerfile`, `livespot_app/nginx.conf`: Flutter 웹 빌드 산출물을 nginx로 서빙한다.
 - 로컬 SQLite는 개발용, 배포는 Postgres — 서버를 새로 올릴 때마다 로그인·제보·Credit 데이터가 날아가면 안 되기 때문.
 
-**남은 일:** 카카오 API 키 미발급(카카오 로그인 기능만 영향), 커스텀 도메인 미연결(현재 Railway가 주는 임시 `*.up.railway.app` 주소 사용), 서비스 지역(서울 한정 vs 전국)은 아직 미확정 — 현재는 전국으로 열어둔 상태.
+**남은 일:** 카카오 API 키는 발급받아 로컬 `.env`에는 채웠으나 **Railway 환경변수(`KAKAO_APP_ID`·`JWT_SECRET`)에는 아직 미반영** — 안 하면 배포본에서 로그인이 안 되거나 앱 소유 검증이 꺼진 채로 돈다, 커스텀 도메인 미연결(현재 Railway가 주는 임시 `*.up.railway.app` 주소 사용), 서비스 지역(서울 한정 vs 전국)은 아직 미확정 — 현재는 전국으로 열어둔 상태.
 
 ---
 
