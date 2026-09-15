@@ -6,6 +6,7 @@ import '../models/report.dart';
 import '../services/api_service.dart';
 import '../services/badge_tracker.dart';
 import '../services/location_service.dart';
+import '../utils/credit_feedback.dart';
 import 'badge_earned_dialog.dart';
 
 const Map<String, String> _crowdednessCodes = {'여유': 'EASY', '보통': 'NORMAL', '혼잡': 'BUSY'};
@@ -75,16 +76,21 @@ class _QuickReportModalState extends State<QuickReportModal> {
       );
 
       if (!mounted) return;
+      // 적립 금액·미적립 사유는 서버가 응답에 실어 보낸다(credit_earned / credit_skip_reason).
+      // 앱은 gps_verified·한도로 역산하지 않고 받은 값을 문구로 옮기기만 한다(01_spec C1·C3).
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            report.gpsVerified ? '제보 완료! 🎉' : '제보가 저장됐어요 (GPS 미인증)',
+            reportCompletionMessage(report),
             style: const TextStyle(fontFamily: 'Pretendard'),
           ),
         ),
       );
 
-      // 이 제보로 뱃지가 올랐는지 확인 — 제보 응답 자체엔 적립 여부가 없어 다시 물어야 한다.
+      // 이 제보로 뱃지가 올랐는지 확인 — 승급 판정에 필요한 누적 총액·뱃지 코드는
+      // 제보 응답에 없어서 따로 물어야 한다(적립 여부·금액은 위 스낵바가 이미 응답에서 읽었다).
+      // 크레딧 안내와 승급 축하는 서로 독립이다(01_spec C7) — 스낵바는 이미 예약됐으므로
+      // 뱃지 확인이 실패하거나 다이얼로그가 뜨든 안 뜨든 적립 안내는 그대로 남는다.
       final newBadge = await BadgeTracker.checkForLevelUp();
       if (!mounted) return;
       if (newBadge != null) {

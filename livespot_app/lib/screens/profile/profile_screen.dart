@@ -82,7 +82,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void didUpdateWidget(covariant ProfileScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     // 마이 탭이 지금 막 보이게 됨 — 숨어 있는 동안 제보·답변으로 크레딧이 올랐을 수
-    // 있다. 적립은 제보/답변 응답에 드러나지 않아(백엔드 계약 4절) 다시 묻는 수밖에 없다.
+    // 있다. 제보/답변 응답이 알려주는 건 그 한 건의 적립액(`credit_earned`)뿐이고
+    // 누적 잔액·뱃지는 여기에 없으므로, 이 화면은 다시 묻는 수밖에 없다.
     if (widget.isActive && !oldWidget.isActive) {
       // 이미 이 프레임에서 리빌드가 진행 중이라 setState는 불필요하다.
       _statsFuture = _makeStatsFuture();

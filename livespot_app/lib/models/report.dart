@@ -11,6 +11,15 @@ class Report {
   final bool gpsVerified;
   final DateTime createdAt;
 
+  /// **이번 요청으로 새로** 적립된 크레딧. `POST /api/reports` 응답에서만 의미가 있고,
+  /// 목록(`GET /api/reports`) 응답에서는 항상 0이다 — 목록 화면은 이 값을 읽지 않는다.
+  /// 금액(10)을 앱에 복제하지 않기 위해(01_spec C1) 서버가 준 값을 그대로 보관한다.
+  final int creditEarned;
+
+  /// 적립되지 않은 이유: `NOT_VERIFIED` / `DAILY_LIMIT` / `ALREADY_AWARDED`.
+  /// 적립됐으면 `null`이다(두 필드는 상호 배타 — 백엔드 계약 1절).
+  final String? creditSkipReason;
+
   Report({
     required this.id,
     required this.userId,
@@ -23,6 +32,8 @@ class Report {
     this.photoUrl,
     required this.gpsVerified,
     required this.createdAt,
+    this.creditEarned = 0,
+    this.creditSkipReason,
   });
 
   factory Report.fromJson(Map<String, dynamic> json) {
@@ -38,6 +49,10 @@ class Report {
       photoUrl: json['photo_url'] as String?,
       gpsVerified: json['gps_verified'] as bool,
       createdAt: _parseUtc(json['created_at'] as String),
+      // 서버는 두 키를 항상 내려보내지만(기본값 0/null) 키 부재에 안전하게 읽는다 —
+      // 같은 모델을 목록 응답에서도 재사용하기 때문이다(01_spec 5절).
+      creditEarned: json['credit_earned'] as int? ?? 0,
+      creditSkipReason: json['credit_skip_reason'] as String?,
     );
   }
 

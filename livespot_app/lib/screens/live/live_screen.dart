@@ -82,6 +82,11 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
 
   late Future<List<HotspotEntry>> _hotspotsFuture;
 
+  // HOT SPOTS → 상세페이지(질문 등록 가능) → 뒤로가기는 탭 전환이 아니라 같은 탭 안의
+  // push/pop이라 isActive가 안 바뀐다. Navigator.push가 끝난 뒤 이 키를 새로 발급해
+  // GlobalQaList를 통째로 다시 만들면(initState 재실행) 방금 등록한 질문이 반영된다.
+  Key _qaListKey = UniqueKey();
+
   @override
   void initState() {
     super.initState();
@@ -343,7 +348,7 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
               _buildHeader(),
               if (_isGpsVerified) _buildMyOnsiteSection(),
               _buildHotspots(),
-              const GlobalQaList(),
+              GlobalQaList(key: _qaListKey, isActive: widget.isActive),
             ],
           ),
         ),
@@ -353,27 +358,30 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
 
   Widget _buildHeader() {
     return Padding(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(AppSpacing.xl),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              FadeTransition(
-                opacity: _pulseAnimation,
-                child: Container(
-                  width: 12,
-                  height: 12,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFFF1744),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
               const Text(
                 'Livespot',
                 style: LiveSpotTheme.heading,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              FadeTransition(
+                opacity: _pulseAnimation,
+                child: Container(
+                  padding: LiveSpotTheme.badgePadding,
+                  decoration: BoxDecoration(
+                    color: LiveSpotTheme.dangerColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(LiveSpotTheme.badgeRadius),
+                  ),
+                  child: Text(
+                    'LIVE',
+                    style: LiveSpotTheme.label.copyWith(color: LiveSpotTheme.dangerColor, fontWeight: FontWeight.w800),
+                  ),
+                ),
               ),
               const Spacer(),
               Row(
@@ -389,7 +397,7 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
               ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: AppSpacing.xs),
           Text(
             '실시간 현황',
             style: LiveSpotTheme.body.copyWith(color: LiveSpotTheme.textSecondary),
@@ -411,13 +419,18 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
             Container(
               width: double.infinity,
               padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
-              color: Colors.white,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(bottom: BorderSide(color: LiveSpotTheme.borderColor)),
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      Text('📍 내 현장 · ',
+                      const Icon(Icons.location_on, size: 16, color: LiveSpotTheme.primaryColor),
+                      const SizedBox(width: 4),
+                      Text('내 현장 · ',
                           style: LiveSpotTheme.body.copyWith(fontWeight: FontWeight.bold, color: LiveSpotTheme.primaryColor)),
                       Expanded(
                         child: Text(spot.title,
@@ -444,14 +457,14 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
       case _GpsMatchStatus.loading:
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: LiveSpotTheme.screenPadding, vertical: 10),
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey.shade200)),
+          padding: const EdgeInsets.all(AppSpacing.xxl),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: LiveSpotTheme.borderColor)),
           child: const Center(
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-                SizedBox(width: 12),
+                SizedBox(width: AppSpacing.md),
                 Text('현재 위치 확인 중...', style: TextStyle(fontFamily: 'Pretendard')),
               ],
             ),
@@ -460,8 +473,8 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
       case _GpsMatchStatus.selecting:
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: LiveSpotTheme.screenPadding, vertical: 10),
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey.shade200)),
+          padding: const EdgeInsets.fromLTRB(AppSpacing.xl, AppSpacing.lg, AppSpacing.xl, AppSpacing.sm),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: LiveSpotTheme.borderColor)),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -469,9 +482,9 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
                 '근처에 관광지가 여러 곳 있어요. 지금 계신 곳을 골라주세요.',
                 style: LiveSpotTheme.body.copyWith(fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.sm),
               ..._gpsCandidates.map((spot) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                     child: OutlinedButton(
                       onPressed: () => _onSelectGpsCandidate(spot),
                       style: OutlinedButton.styleFrom(
@@ -504,12 +517,12 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
       case _GpsMatchStatus.none:
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: LiveSpotTheme.screenPadding, vertical: 10),
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey.shade200)),
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(16), border: Border.all(color: LiveSpotTheme.borderColor)),
           child: Row(
             children: [
               Icon(Icons.location_off, color: Colors.grey.shade400),
-              const SizedBox(width: 12),
+              const SizedBox(width: AppSpacing.md),
               const Expanded(
                 child: Text(
                   '인증된 관광지가 없어요.\n관광지 반경 150m 이내로 이동한 뒤 다시 시도해보세요.',
@@ -522,12 +535,21 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
       case _GpsMatchStatus.error:
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: LiveSpotTheme.screenPadding, vertical: 10),
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.red.shade100)),
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.only(topRight: Radius.circular(12), bottomRight: Radius.circular(12)),
+            border: Border(
+              top: BorderSide(color: LiveSpotTheme.borderColor),
+              right: BorderSide(color: LiveSpotTheme.borderColor),
+              bottom: BorderSide(color: LiveSpotTheme.borderColor),
+              left: BorderSide(color: LiveSpotTheme.dangerColor, width: 4),
+            ),
+          ),
           child: Row(
             children: [
-              Icon(Icons.error_outline, color: Colors.red.shade300),
-              const SizedBox(width: 12),
+              const Icon(Icons.error_outline, color: LiveSpotTheme.dangerColor),
+              const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Text('위치를 확인하지 못했어요: ${_gpsMatchError ?? ''}', style: LiveSpotTheme.body),
               ),
@@ -558,7 +580,11 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
           const SizedBox(width: 4),
           Text(
             '지금 여기 $count명',
-            style: LiveSpotTheme.caption.copyWith(fontWeight: FontWeight.bold, color: Colors.grey[800]),
+            style: LiveSpotTheme.caption.copyWith(
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[800],
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
           ),
           const SizedBox(width: 6),
           Text(
@@ -578,14 +604,20 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
       children: [
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: LiveSpotTheme.screenPadding, vertical: 10),
-          child: Text('🔥 HOT SPOTS', style: LiveSpotTheme.title),
+          child: Row(
+            children: [
+              Icon(Icons.local_fire_department, size: 20, color: LiveSpotTheme.dangerColor),
+              SizedBox(width: AppSpacing.xs),
+              Text('HOT SPOTS', style: LiveSpotTheme.title),
+            ],
+          ),
         ),
         FutureBuilder<List<HotspotEntry>>(
           future: _hotspotsFuture,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Padding(
-                padding: EdgeInsets.symmetric(vertical: 20),
+                padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
                 child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
               );
             }
@@ -595,12 +627,21 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
               // 알 수 없게 된다.
               return Container(
                 margin: const EdgeInsets.symmetric(horizontal: LiveSpotTheme.screenPadding, vertical: 6),
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.all(AppSpacing.xl),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.only(topRight: Radius.circular(12), bottomRight: Radius.circular(12)),
+                  border: Border(
+                    top: BorderSide(color: LiveSpotTheme.borderColor),
+                    right: BorderSide(color: LiveSpotTheme.borderColor),
+                    bottom: BorderSide(color: LiveSpotTheme.borderColor),
+                    left: BorderSide(color: LiveSpotTheme.dangerColor, width: 4),
+                  ),
+                ),
                 child: Row(
                   children: [
-                    Icon(Icons.error_outline, color: Colors.red.shade300),
-                    const SizedBox(width: 12),
+                    const Icon(Icons.error_outline, color: LiveSpotTheme.dangerColor),
+                    const SizedBox(width: AppSpacing.md),
                     Expanded(
                       child: Text(
                         'HOT SPOTS를 불러오지 못했어요: ${snapshot.error.toString().replaceFirst('Exception: ', '')}',
@@ -615,8 +656,8 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
             if (hotspots.isEmpty) {
               return Container(
                 margin: const EdgeInsets.symmetric(horizontal: LiveSpotTheme.screenPadding, vertical: 6),
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.all(AppSpacing.xl),
+                decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(12), border: Border.all(color: LiveSpotTheme.borderColor)),
                 child: Center(child: Text('지금 활동 중인 관광지가 없어요', style: LiveSpotTheme.body.copyWith(color: LiveSpotTheme.textSecondary))),
               );
             }
@@ -631,7 +672,7 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
                   margin: const EdgeInsets.symmetric(horizontal: LiveSpotTheme.screenPadding, vertical: 6),
                   elevation: 0,
                   color: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: LiveSpotTheme.borderColor)),
                   child: ListTile(
                     onTap: () => Navigator.push(
                       context,
@@ -647,7 +688,15 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
                           ),
                         ),
                       ),
-                    ),
+                    ).then((_) {
+                      // 상세페이지에서 질문을 등록했을 수 있다 — 같은 탭 안의 push/pop이라
+                      // isActive는 안 바뀌므로, 돌아올 때 직접 재조회 계기를 만든다.
+                      if (!mounted) return;
+                      setState(() {
+                        _hotspotsFuture = _apiService.fetchHotspots();
+                        _qaListKey = UniqueKey();
+                      });
+                    }),
                     leading: _hotspotLeading(spot, index + 1),
                     title: Text(spot.spotTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Pretendard')),
                     subtitle: Text(_hotspotSubtitle(spot), style: LiveSpotTheme.caption.copyWith(color: LiveSpotTheme.textSecondary)),
@@ -683,7 +732,14 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
   Widget _hotspotLeading(HotspotEntry spot, int rank) {
     final rankAvatar = CircleAvatar(
       backgroundColor: LiveSpotTheme.primaryColor.withValues(alpha: 0.1),
-      child: Text('$rank', style: const TextStyle(color: LiveSpotTheme.primaryColor, fontWeight: FontWeight.bold)),
+      child: Text(
+        '$rank',
+        style: const TextStyle(
+          color: LiveSpotTheme.primaryColor,
+          fontWeight: FontWeight.bold,
+          fontFeatures: [FontFeature.tabularFigures()],
+        ),
+      ),
     );
 
     // TourAPI CDN은 CORS 헤더를 안 보내므로 반드시 프록시를 거쳐야 웹에서 그려진다.
@@ -723,7 +779,13 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
               // 작아야 한다 — 의도된 스케일 밖 예외(위 배지 라벨과 같은 이유).
               child: Text(
                 '$rank',
-                style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold, fontFamily: 'Pretendard'),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Pretendard',
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
               ),
             ),
           ),

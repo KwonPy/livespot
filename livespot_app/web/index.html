@@ -27,7 +27,9 @@
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
+  <!-- 쿼리스트링(?v=)으로 캐시 무효화: 파일명이 그대로면 브라우저가 이전 favicon을 계속 캐시해서
+       내용을 바꿔도 갱신되지 않는다. 아이콘을 다시 바꿀 때는 이 버전 숫자를 올릴 것. -->
+  <link rel="icon" type="image/png" href="favicon.png?v=2"/>
 
   <title>livespot_app</title>
   <link rel="manifest" href="manifest.json">
@@ -130,6 +132,8 @@
     var spotMap = null;
     // id -> { marker, el, sig }  (id 기준 diffing으로 마커 중복 생성 방지)
     var spotMarkers = {};
+    // 사용자 현재 위치 핀. 관광지 마커와 달리 단 하나뿐이라 diffing 없이 위치만 갱신한다.
+    var userLocationMarker = null;
 
     function showMapError(container, message) {
       if (!container) return;
@@ -269,6 +273,49 @@
       });
     }
 
+    // 사용자 현재 위치 핀 (Flutter에서 GPS 좌표를 얻을 때마다 호출). 방위(heading)는
+    // 표시하지 않는다 — 앱 아이콘을 원형으로 담은 CSS 핀(하단이 뾰족한 물방울 모양)만 쓴다.
+    // 관광지 마커와 구분되도록 primaryColor 테두리를 두른다.
+    function updateUserLocationMarker(lat, lng) {
+      if (!spotMap || lat == null || lng == null) return;
+
+      if (userLocationMarker) {
+        userLocationMarker.setLngLat([lng, lat]);
+        return;
+      }
+
+      var el = document.createElement('div');
+      el.style.width = '26px';
+      el.style.height = '26px';
+      // 정사각형을 45도 회전 + 좌상단 모서리만 직각으로 남겨 물방울(핀) 모양을 만드는
+      // 표준 CSS 트릭. anchor: 'bottom'과 맞춰 뾰족한 꼭짓점이 실제 좌표를 가리킨다.
+      el.style.transform = 'rotate(-45deg)';
+      el.style.borderRadius = '50% 50% 50% 0';
+      el.style.background = '#fff';
+      // #1E88E5: lib/config/theme.dart의 LiveSpotTheme.primaryColor와 동일한 값을
+      // 유지한다 — 이 파일은 Dart 상수를 참조할 수 없어 값을 그대로 복제했다.
+      el.style.border = '2px solid #1E88E5';
+      el.style.boxShadow = '0 2px 6px rgba(0,0,0,0.35)';
+      el.style.display = 'flex';
+      el.style.alignItems = 'center';
+      el.style.justifyContent = 'center';
+      el.style.overflow = 'hidden';
+
+      var img = document.createElement('img');
+      img.src = 'icons/Icon-192.png';
+      img.style.width = '16px';
+      img.style.height = '16px';
+      img.style.borderRadius = '50%';
+      img.style.objectFit = 'cover';
+      // 바깥 el만 회전시키고 아이콘 자체는 반대로 되돌려 정방향으로 보이게 한다.
+      img.style.transform = 'rotate(45deg)';
+      el.appendChild(img);
+
+      userLocationMarker = new maptilersdk.Marker({ element: el, anchor: 'bottom' })
+        .setLngLat([lng, lat])
+        .addTo(spotMap);
+    }
+
     // 내 위치로 이동
     function panToSpotMap(lat, lng) {
       if (!spotMap) return;
@@ -291,6 +338,11 @@
         spotMarkers[id].marker.remove();
       });
       spotMarkers = {};
+
+      if (userLocationMarker) {
+        userLocationMarker.remove();
+        userLocationMarker = null;
+      }
 
       if (spotMap) {
         spotMap.remove();

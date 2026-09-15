@@ -21,10 +21,10 @@ class _AskQuestionModalState extends State<AskQuestionModal> {
   String? _errorMessage;
 
   final List<String> _quickQuestions = [
-    '🚗 주차 공간 남아있나요?',
-    '⏱️ 입장 대기 몇 분인가요?',
-    '👥 현재 사람 많은가요?',
-    '☀️ 실체감 날씨 어떤가요?'
+    '주차 공간 남아있나요?',
+    '입장 대기 몇 분인가요?',
+    '현재 사람 많은가요?',
+    '실체감 날씨 어떤가요?'
   ];
 
   @override

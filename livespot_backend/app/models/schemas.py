@@ -155,6 +155,20 @@ WaitingTime = Literal["NONE", "UNDER_10", "10_TO_30", "OVER_30"]
 ParkingStatus = Literal["EASY", "NORMAL", "FULL"]
 
 
+# ──────────────────── 적립 결과 표현 (기능 2·4·7 경계면) ────────────────────
+# 제보·답변 완료 응답에 "이번 요청으로 실제 적립된 크레딧"을 싣기 위한 공통 타입.
+# 적립 자격 판정은 전부 서버(services/credit.prepare_award)가 하고, 앱은 받은 숫자를
+# 그대로 그린다 — gps_verified나 작성 건수로 금액을 역산하면 안 된다(011 9절 C1·C3).
+#
+# 세 사유를 구분하는 이유: 예전에는 GPS 미인증·일일 한도 초과·중복 적립이 모두 None
+# 하나로 뭉뚱그려져, 앱이 "왜 못 받았는지"를 설명할 방법이 없었다.
+CreditSkipReason = Literal[
+    "NOT_VERIFIED",     # GPS 미인증(DEMO_BYPASS_GPS로 저장만 허용된 원격 제보·답변)
+    "DAILY_LIMIT",      # 같은 장소 당일(KST) 적립 한도(CREDIT_DAILY_LIMIT_PER_SPOT) 초과
+    "ALREADY_AWARDED",  # 이미 적립된 건 — 같은 질문 2번째 답변, 또는 client_request_id 재제출
+]
+
+
 class ReportCreate(BaseModel):
     spot_content_id: str
     crowdedness_level: CrowdednessLevel
@@ -183,6 +197,13 @@ class ReportResponse(BaseModel):
     photo_url: Optional[str] = None
     gps_verified: bool
     created_at: datetime
+    # ── 이번 요청으로 적립된 크레딧 (POST /reports에서만 의미가 있다) ──
+    # 기본값을 둔 이유: 이 스키마는 목록 조회(GET /reports, _to_response)에서도 쓰이는데,
+    # 거기서는 "이번 적립"이라는 개념 자체가 없다. 기본값이 없으면 생성 지점 전부를
+    # 고쳐야 하고, 하나라도 빠뜨리면 목록이 500으로 죽는다.
+    # 목록 응답에서는 항상 credit_earned=0 / credit_skip_reason=null이며 앱은 이 값을 읽지 않는다.
+    credit_earned: int = 0
+    credit_skip_reason: Optional[CreditSkipReason] = None
 
 
 # ──────────────────── GPS 능동 인증 (기능 4) ────────────────────
@@ -380,6 +401,12 @@ class AnswerResponse(BaseModel):
     user_nickname: str  # users.nickname 조인 결과
     content: str
     created_at: datetime
+    # ── 이번 요청으로 적립된 크레딧 (POST /questions/{id}/answers에서만 의미가 있다) ──
+    # ReportResponse와 같은 이유로 기본값을 둔다. 이 스키마는 questions.py:169(내 Q&A),
+    # question_query.py:54(질문 목록의 answers[])에서도 만들어지는데, 그 두 곳은
+    # 기본값 덕분에 무수정으로 통과한다.
+    credit_earned: int = 0
+    credit_skip_reason: Optional[CreditSkipReason] = None
 
 
 class QuestionResponse(BaseModel):

@@ -357,6 +357,12 @@ class _MapScreenState extends State<MapScreen> {
       }
       if (!mounted) return;
 
+      // 사용자 현재 위치 핀. GPS를 못 얻은 상태(fallback 좌표)에서는 실제 위치가 아니므로
+      // 찍지 않는다 — 방위(heading) 표시는 하지 않는다(정책).
+      if (_gpsObtained) {
+        js.context.callMethod('updateUserLocationMarker', [_userLat, _userLng]);
+      }
+
       // Dart 객체를 JSON 스트링으로 변환하여 JS로 전달
       final spotsJson = jsonEncode(List.generate(spots.length, (i) {
         final s = spots[i];

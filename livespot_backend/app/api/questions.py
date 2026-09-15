@@ -265,7 +265,8 @@ async def create_answer(
     # 적립 판정을 db.add(answer)보다 먼저 부른다 — 판정이 SELECT를 돌리므로 pending 객체가
     # 있으면 autoflush가 끼어든다. source_id는 answer.id가 아니라 question_id라서 답변 id에
     # 의존하지 않고, 그래서 미리 판정할 수 있다.
-    ledger = await credit_service.prepare_answer_award(
+    # 결과(금액 또는 미적립 사유)는 아래 응답의 credit_earned/credit_skip_reason에 그대로 실린다.
+    award = await credit_service.prepare_answer_award(
         db, user,
         question_id=question_id,
         spot_content_id=question.spot_content_id,
@@ -293,11 +294,11 @@ async def create_answer(
     )
     db.add(answer)
     question.answer_count += 1
-    if ledger is not None:
+    if award.ledger is not None:
         # 이미 답변·카운트 갱신이 한 트랜잭션이므로, 여기에 원장 행을 얹으면 트랜잭션
         # 경계가 자동으로 지켜진다. 같은 질문에 두 번째 답변부터는 ledger가 None이고
-        # (질문당 1회, P14) 답변 자체는 정상 저장된다.
-        db.add(ledger)
+        # (질문당 1회, P14) 답변 자체는 정상 저장된다 — 그때 skip_reason은 ALREADY_AWARDED다.
+        db.add(award.ledger)
     # 알림도 같은 트랜잭션에 얹는다(P6). 대상이 없으면 빈 리스트라 아무 일도 하지 않는다.
     db.add_all(alert_rows)
     await db.commit()
@@ -312,4 +313,6 @@ async def create_answer(
         user_nickname=display_nickname(user.nickname),
         content=answer.content,
         created_at=answer.created_at,
+        credit_earned=award.earned,
+        credit_skip_reason=award.skip_reason,
     )

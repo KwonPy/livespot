@@ -4,6 +4,7 @@ import '../models/question.dart';
 import '../services/api_service.dart';
 import '../services/badge_tracker.dart';
 import '../services/mock_data_service.dart';
+import '../utils/credit_feedback.dart';
 import 'badge_earned_dialog.dart';
 
 /// 기능 7(현장 Q&A) 답변 작성. GPS 현장 인증(기능 3)된 사용자만 쓸 수 있다 —
@@ -45,6 +46,8 @@ class _OnsiteAnswerModalState extends State<OnsiteAnswerModal> {
       setState(() => _errorMessage = '답변 내용을 입력해주세요');
       return;
     }
+    // 모달이 닫힌 뒤에도 스낵바가 남아야 하므로(앱 전역 ScaffoldMessenger) 첫 await 전에 잡아둔다.
+    final messenger = ScaffoldMessenger.of(context);
     setState(() {
       _isSubmitting = true;
       _errorMessage = null;
@@ -56,9 +59,24 @@ class _OnsiteAnswerModalState extends State<OnsiteAnswerModal> {
         lat: widget.lat,
         lng: widget.lng,
       );
+
+      // 답변 완료 안내는 적립 여부와 무관하게 **항상** 띄운다(01_spec C12).
+      // 적립되면 서버가 준 credit_earned를 그대로, 아니면 credit_skip_reason에 대응하는
+      // 사유 문구를 보여준다 — 금액도 사유도 앱이 계산하지 않는다(C1·C3).
+      // 뱃지 승급 다이얼로그보다 **먼저** 예약해 두 피드백을 독립시킨다(C7):
+      // 승급하지 않아도, 뱃지 조회가 실패해도 이 안내는 이미 화면에 올라가 있다.
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            answerCompletionMessage(answer),
+            style: const TextStyle(fontFamily: 'Pretendard'),
+          ),
+        ),
+      );
       if (!mounted) return;
 
-      // 이 답변으로 뱃지가 올랐는지 확인 — 답변 응답 자체엔 적립 여부가 없어 다시 물어야 한다.
+      // 이 답변으로 뱃지가 올랐는지 확인 — 승급 판정에 필요한 누적 총액·뱃지 코드는
+      // 답변 응답에 없어서 따로 물어야 한다(적립 여부·금액은 위 스낵바가 이미 응답에서 읽었다).
       final newBadge = await BadgeTracker.checkForLevelUp();
       if (!mounted) return;
       if (newBadge != null) {

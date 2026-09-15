@@ -12,6 +12,7 @@ from app.db.models.report import Report
 from app.db.models.user import User
 from app.api.deps import get_current_user_id
 from app.models.schemas import (
+    CreditSkipReason,
     MyReportEntry,
     QuestionResponse,
     ReportCreate,
@@ -31,12 +32,22 @@ router = APIRouter()
 tour_service = TourAPIService()
 
 
-def _to_response(report: Report, nickname: Optional[str]) -> ReportResponse:
+def _to_response(
+    report: Report,
+    nickname: Optional[str],
+    *,
+    credit_earned: int = 0,
+    credit_skip_reason: Optional[CreditSkipReason] = None,
+) -> ReportResponse:
     """제보 1건 → 응답. 조인해 온 닉네임은 nullable이다(P25).
 
     `ReportResponse.user_nickname`은 계속 `str`(비-null)이라 폴백을 씌운다(P33).
     닉네임 미설정 사용자는 제보를 만들 수 없으므로(P28) 실제로는 발동하지 않는다 —
     발동한다면 목록이 500으로 죽는 대신 한 줄만 "알 수 없음"으로 뜨게 하는 안전장치다.
+
+    크레딧 두 인자는 **키워드 전용 + 기본값**이다. 목록 조회(GET /reports, GET 계열)는
+    "이번 요청으로 적립된 금액"이라는 개념이 없으므로 그냥 부르면 0/None이 나가고,
+    POST 경로만 실제 판정 결과를 넘긴다(011 9절 C6·C10).
     """
     return ReportResponse(
         id=report.id,
@@ -50,6 +61,8 @@ def _to_response(report: Report, nickname: Optional[str]) -> ReportResponse:
         photo_url=report.photo_url,
         gps_verified=report.gps_verified,
         created_at=report.created_at,
+        credit_earned=credit_earned,
+        credit_skip_reason=credit_skip_reason,
     )
 
 
@@ -63,10 +76,21 @@ async def create_report(
     if user is None:
         raise HTTPException(status_code=500, detail="사용자가 초기화되지 않았습니다")
 
+    # 닉네임을 **지금** 지역 변수로 떠둔다. 아래 IntegrityError 경로의 `db.rollback()`이
+    # 세션의 모든 객체를 expire 시키는데(expire_on_commit=False라 commit은 안 그런다),
+    # 그 뒤에 `user.nickname`을 읽으면 SQLAlchemy가 동기 lazy-load를 시도해
+    # MissingGreenlet으로 500이 난다. 동시 중복 제출을 200으로 흡수하려고 만든 폴백이
+    # 정작 500을 내던 지점이다. 값만 미리 꺼내두면 rollback 이후 DB 접근이 없어진다.
+    nickname = user.nickname
+
     # 중복 제출: 같은 client_request_id로 이미 저장된 제보가 있으면 새로 만들지 않고 그대로 돌려준다.
+    #
+    # 크레딧은 0 + ALREADY_AWARDED로 내려간다(011 9절 C11). 원장을 다시 조회해 "이 제보가
+    # 원래 받았던 금액"을 돌려주지 않는 이유: 필드 정의가 "이번 요청으로 새로 적립된 금액"
+    # 이고, 재제출에 +10을 실으면 모달이 두 번 열린 사용자에게 적립이 두 번 된 것처럼 보인다.
     existing = await db.scalar(select(Report).where(Report.client_request_id == report.client_request_id))
     if existing is not None:
-        return _to_response(existing, user.nickname)
+        return _to_response(existing, nickname, credit_skip_reason="ALREADY_AWARDED")
 
     spot = await tour_service.get_spot_detail(report.spot_content_id)
     if not spot:
@@ -92,9 +116,10 @@ async def create_report(
     report_id = str(uuid.uuid4())
 
     # 적립은 여기서 판정만 하고 add는 아래 commit 앞에서 한다. 자격이 없으면(GPS 미인증,
-    # 같은 장소 하루 상한 초과) ledger가 None이지만 제보 자체는 그대로 저장되고 응답도
-    # 동일하다 — 크레딧을 못 받았다고 정보 제공을 막지는 않는다(P15).
-    ledger = await credit_service.prepare_report_award(
+    # 같은 장소 하루 상한 초과) award.ledger가 None이지만 제보 자체는 그대로 저장되고
+    # HTTP 200이다 — 크레딧을 못 받았다고 정보 제공을 막지는 않는다(011 9절 C2).
+    # 판정 결과(금액 또는 사유)는 응답의 credit_earned/credit_skip_reason으로 그대로 나간다.
+    award = await credit_service.prepare_report_award(
         db, user,
         report_id=report_id,
         spot_content_id=report.spot_content_id,
@@ -114,21 +139,28 @@ async def create_report(
         client_request_id=report.client_request_id,
     )
     db.add(new_report)
-    if ledger is not None:
+    if award.ledger is not None:
         # 기존 commit "앞"에 add — 별도 commit을 만들면 제보만 저장되고 크레딧은 사라지는
         # (또는 그 반대의) 상태가 실제로 생긴다.
-        db.add(ledger)
+        db.add(award.ledger)
     try:
         await db.commit()
     except IntegrityError:
         # 동시에 같은 client_request_id로 두 번 요청이 들어온 경우 (DB 유니크 제약이 최종 방어선)
+        # 이 경로에서는 rollback으로 ledger도 함께 버려졌으므로 실제 적립은 0이다.
+        # 위 사전조회 경로와 같은 이유로 ALREADY_AWARDED를 싣는다(C11).
         await db.rollback()
         existing = await db.scalar(select(Report).where(Report.client_request_id == report.client_request_id))
         if existing is not None:
-            return _to_response(existing, user.nickname)
+            return _to_response(existing, nickname, credit_skip_reason="ALREADY_AWARDED")
         raise
     await db.refresh(new_report)
-    return _to_response(new_report, user.nickname)
+    return _to_response(
+        new_report,
+        nickname,
+        credit_earned=award.earned,
+        credit_skip_reason=award.skip_reason,
+    )
 
 
 @router.get("", response_model=List[ReportResponse])

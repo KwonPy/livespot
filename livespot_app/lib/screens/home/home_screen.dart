@@ -125,7 +125,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final screens = [
       MapScreen(isActive: _currentIndex == _mapTabIndex), // 🗺️ 지도 (탐색의 중심 — 주변 조회 & 검색 & 상세 연결)
       LiveScreen(isActive: _currentIndex == _liveTabIndex), // 🔴 라이브 (실시간 현황 & 랭킹 & Q&A & 제보)
-      // 제보·답변의 크레딧 적립은 그 응답에 드러나지 않는다(백엔드 계약 4절) — 다시
+      // 제보·답변 응답은 그 한 건의 적립액만 알려준다 — 누적 잔액·뱃지는 다시
       // 조회해야만 보인다. IndexedStack이 탭을 살려두므로 initState는 한 번뿐이라,
       // 탭이 다시 보일 때 재조회하도록 MapScreen과 같은 isActive 규약을 쓴다.
       ProfileScreen(isActive: _currentIndex == _profileTabIndex), // 👤 마이 (프로필 & Credit)

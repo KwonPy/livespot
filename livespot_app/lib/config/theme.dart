@@ -6,6 +6,10 @@ class LiveSpotTheme {
   static const Color backgroundColor = Color(0xFFFAFBFC);
   static const Color textColor = Color(0xFF333333);
 
+  /// 카드가 배경(#FAFBFC)과 거의 같은 흰색이라 경계가 안 보이는 문제 완화용 보더.
+  /// 배경/카드 색은 그대로 두고, 옅은 보더 한 줄로만 표면을 구분한다.
+  static const Color borderColor = Color(0xFFE2E8F0);
+
   /// 혼잡도 3단계(여유/보통/높음, EASY/NORMAL/BUSY 양쪽 다 공유)에서 쓰는 신호등 색.
   /// warningColor는 일부러 accentColor(#FF6D00)와 다른 톤(앰버)을 써서, CTA 주황과
   /// "보통" 경고 배지가 서로 헷갈리지 않게 한다.
@@ -71,4 +75,17 @@ class LiveSpotTheme {
       ),
     );
   }
+}
+
+/// 4px 배수 스페이싱 스케일. 전체 화면 일괄 치환 대신 화면 단위로 단계적으로
+/// 적용한다 — 첫 적용 대상은 live_screen.dart(간격 값이 화면마다/한 화면 안에서도
+/// 제각각이던 문제).
+class AppSpacing {
+  static const double xs = 4;
+  static const double sm = 8;
+  static const double md = 12;
+  static const double lg = 16;
+  static const double xl = 20;
+  static const double xxl = 24;
+  static const double xxxl = 32;
 }

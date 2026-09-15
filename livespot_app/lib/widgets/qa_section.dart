@@ -7,7 +7,6 @@ import '../utils/formatters.dart';
 import 'ask_question_modal.dart';
 import 'login_required_sheet.dart';
 import 'onsite_answer_modal.dart';
-import 'question_detail_sheet.dart';
 
 /// 기능 7(현장 Q&A) — 답변 가능한 컨텍스트 전용. 관광지 상세페이지와 Live 페이지의
 /// "내 현장 Q&A"(GPS 인증된 관광지) 양쪽에서 재사용한다. "전체 LIVE Q&A"(어디서도 답변
@@ -41,6 +40,10 @@ class _QaSectionState extends State<QaSection> {
   late Future<List<Question>> _questionsFuture;
   final LocationService _locationService = LocationService();
   bool _answering = false;
+  // 질문을 누르면 바텀시트 대신 카드 바로 아래로 답변을 펼쳐 보여준다(아코디언).
+  // 한 번에 하나만 펼친다 — 여러 개를 동시에 펼치면 목록이 길어져 방금 누른 질문을
+  // 다시 찾기 어렵다.
+  String? _expandedQuestionId;
 
   @override
   void initState() {
@@ -67,13 +70,10 @@ class _QaSectionState extends State<QaSection> {
     if (question != null) _reload();
   }
 
-  void _openDetail(Question q) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => QuestionDetailSheet(question: q),
-    );
+  void _toggleExpand(String questionId) {
+    setState(() {
+      _expandedQuestionId = _expandedQuestionId == questionId ? null : questionId;
+    });
   }
 
   // 답변하기: 매번 현재 위치를 새로 확인해 답변 등록 API로 그대로 넘긴다. 실제 GPS
@@ -184,6 +184,7 @@ class _QaSectionState extends State<QaSection> {
 
   Widget _buildQaCard(Question q) {
     final canAnswer = !q.isExpired;
+    final expanded = _expandedQuestionId == q.id;
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(12)),
@@ -191,7 +192,7 @@ class _QaSectionState extends State<QaSection> {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
-          onTap: () => _openDetail(q),
+          onTap: () => _toggleExpand(q.id),
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Column(
@@ -216,16 +217,20 @@ class _QaSectionState extends State<QaSection> {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Icon(Icons.chat_bubble_outline, size: 14, color: q.answerCount > 0 ? LiveSpotTheme.successColor : LiveSpotTheme.warningColor),
-                    const SizedBox(width: 4),
                     Text(
                       q.answerCount > 0 ? '답변 ${q.answerCount}개' : '답변 대기',
                       style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: q.answerCount > 0 ? LiveSpotTheme.successColor : LiveSpotTheme.warningColor),
                     ),
                     const Spacer(),
                     Text(Formatters.timeAgo(q.createdAt), style: TextStyle(fontSize: 10, color: Colors.grey[400])),
+                    const SizedBox(width: 4),
+                    Icon(expanded ? Icons.expand_less : Icons.expand_more, size: 18, color: Colors.grey[400]),
                   ],
                 ),
+                if (expanded) ...[
+                  const Divider(height: 20),
+                  _buildAnswersList(q),
+                ],
                 if (canAnswer) ...[
                   const SizedBox(height: 8),
                   SizedBox(
@@ -245,6 +250,45 @@ class _QaSectionState extends State<QaSection> {
           ),
         ),
       ),
+    );
+  }
+
+  // 질문 카드를 펼쳤을 때 그 아래에 보여주는 답변 목록. 예전에는 바텀시트
+  // (QuestionDetailSheet)를 새로 띄웠지만, 목록 흐름을 끊지 않도록 인라인으로 바꿨다.
+  Widget _buildAnswersList(Question q) {
+    if (q.answers.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10)),
+        child: Text('아직 답변이 없어요.', style: TextStyle(color: Colors.grey[400], fontFamily: 'Pretendard', fontSize: 13)),
+      );
+    }
+    return Column(
+      children: q.answers
+          .map((a) => Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.check_circle, size: 14, color: Colors.green),
+                        const SizedBox(width: 6),
+                        Text(a.userNickname, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Pretendard')),
+                        const Spacer(),
+                        Text(Formatters.timeAgo(a.createdAt), style: TextStyle(fontSize: 10, color: Colors.grey[400])),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(a.content, style: const TextStyle(fontSize: 13, fontFamily: 'Pretendard')),
+                  ],
+                ),
+              ))
+          .toList(),
     );
   }
 }

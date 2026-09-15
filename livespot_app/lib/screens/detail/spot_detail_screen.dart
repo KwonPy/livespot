@@ -977,6 +977,13 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
               style: OutlinedButton.styleFrom(foregroundColor: LiveSpotTheme.primaryColor, side: const BorderSide(color: LiveSpotTheme.primaryColor), padding: const EdgeInsets.symmetric(vertical: 12), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
             ),
           ),
+          if (!_hasCoordinates) ...[
+            const SizedBox(height: 8),
+            Text(
+              '이 장소는 좌표 정보가 없어 길찾기를 지원하지 않아요.',
+              style: LiveSpotTheme.caption.copyWith(color: Colors.grey[600]),
+            ),
+          ],
         ],
       ),
     );

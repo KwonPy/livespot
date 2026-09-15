@@ -5,8 +5,10 @@ import 'auth_service.dart';
 
 /// 뱃지 승급 감지.
 ///
-/// 제보·답변 응답에는 크레딧 적립 여부가 드러나지 않는다(`profile_screen.dart`의
-/// "백엔드 계약 4절" 주석과 같은 제약). 그래서 성공 직후 `/credits/me`를 다시 불러
+/// 제보·답변 응답은 이제 **이번 요청의** 적립 여부·금액(`credit_earned` /
+/// `credit_skip_reason`)까지 알려준다 — 완료 스낵바는 그 값만으로 그린다.
+/// 하지만 승급 판정에 필요한 건 적립액이 아니라 **누적 총액과 뱃지 코드**라,
+/// 그 둘은 여전히 응답에 없다. 그래서 성공 직후 `/credits/me`를 다시 불러
 /// 마지막으로 봤던 뱃지 코드와 비교하는 방식으로 "방금 등급이 올랐는지"를 판단한다.
 class BadgeTracker {
   static const _prefsKeyPrefix = 'last_seen_badge_code';

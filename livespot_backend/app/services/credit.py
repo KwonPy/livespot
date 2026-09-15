@@ -10,6 +10,7 @@
 하루 경계가 갈리면 같은 사용자에게 서로 다른 "오늘"이 보인다.
 """
 
+from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
 from sqlalchemy import func, select
@@ -25,6 +26,7 @@ from app.models.schemas import (
     ActivityCountResponse,
     CreditBadge,
     CreditLedgerEntry,
+    CreditSkipReason,
     CreditSummaryResponse,
 )
 from app.services.report_window import today_cutoff_utc
@@ -49,6 +51,34 @@ REASON_REPORT = "REPORT"
 REASON_ANSWER = "ANSWER"
 SOURCE_REPORT = "report"
 SOURCE_ANSWER = "answer"
+
+# 미적립 사유 코드. 그대로 응답 JSON의 credit_skip_reason 값이 되므로
+# 문자열을 바꾸면 앱의 문구 분기가 조용히 깨진다 — schemas.CreditSkipReason과 짝이다.
+SKIP_NOT_VERIFIED = "NOT_VERIFIED"
+SKIP_DAILY_LIMIT = "DAILY_LIMIT"
+SKIP_ALREADY_AWARDED = "ALREADY_AWARDED"
+
+
+@dataclass(frozen=True)
+class AwardResult:
+    """적립 자격 판정 결과.
+
+    예전에는 `Optional[CreditLedger]` 하나였고, 자격이 없는 세 경우(GPS 미인증 /
+    당일 장소별 한도 초과 / 이미 적립된 건)가 전부 `None`으로 뭉쳐 있었다. 그래서
+    호출부는 "못 받았다"까지만 알고 "왜"를 응답에 실을 수 없었다. 011 9절(C9)에서
+    사유를 사용자에게 보여주기로 정하면서 결과 객체로 넓혔다.
+
+    `ledger`는 여전히 **세션에 add되지 않은 채로** 돌아온다 — 호출자가 기존
+    `await db.commit()` 앞에서 직접 add해야 원본 저장과 같은 트랜잭션에 묶인다.
+    """
+
+    ledger: Optional[CreditLedger] = None
+    skip_reason: Optional[CreditSkipReason] = None
+
+    @property
+    def earned(self) -> int:
+        """이번 요청으로 적립된 금액. 자격이 없으면 0 (음수나 None이 되지 않는다)."""
+        return self.ledger.amount if self.ledger is not None else 0
 
 
 def resolve_badge(total_earned: int) -> CreditBadge:
@@ -97,15 +127,16 @@ async def prepare_award(
     source_id: str,
     spot_content_id: Optional[str],
     gps_verified: bool,
-) -> Optional[CreditLedger]:
-    """적립 자격을 판정하고, 자격이 있으면 원장 행 객체를 만들어 돌려준다.
+) -> AwardResult:
+    """적립 자격을 판정하고, 자격이 있으면 원장 행 객체를, 없으면 **사유 코드**를 돌려준다.
 
     **세션에 add하지도 commit하지도 않는다.** 호출자가 기존 `await db.commit()` **앞**에서
     `db.add()` 해야 제보/답변 저장과 같은 트랜잭션에 묶인다. 여기서 따로 commit하면
     "제보는 저장됐는데 크레딧은 안 들어옴"(또는 그 반대)이 실제로 발생한다.
 
-    자격이 없으면 None을 돌려주고, **호출자는 그래도 정상 200을 반환해야 한다**(P15).
-    상한을 넘겼다고 제보 자체를 거부하면 사용자는 정보를 올릴 방법을 잃는다.
+    자격이 없으면 `ledger=None` + `skip_reason`을 돌려주고, **호출자는 그래도 정상 200을
+    반환해야 한다**(011 9절 C2). 상한을 넘겼다고 제보 자체를 거부하면 사용자는 정보를
+    올릴 방법을 잃는다. 사유는 응답의 `credit_skip_reason`으로 그대로 나간다.
 
     주의: 이 함수는 SELECT를 수행하므로 호출 시점에 세션에 pending 객체가 있으면
     autoflush가 일어난다. 그래서 호출자는 `db.add(new_report)` **이전에** 부른다 —
@@ -113,12 +144,14 @@ async def prepare_award(
     autoflush가 그 예외를 try 블록 밖에서 터뜨리면 그 관례가 깨진다.
     """
     if amount <= 0:
-        return None
+        # 설정 오류(CREDIT_AMOUNT_* 가 0 이하)일 때만 도달한다. 사용자가 뭘 잘못한 게
+        # 아니므로 사용자에게 보여줄 사유 코드를 만들지 않고 None으로 둔다.
+        return AwardResult()
 
     # 크레딧의 명분은 "실제 현장에서 정보를 제공했다"이다. DEMO_BYPASS_GPS로 저장만 허용된
     # 원격 제보·답변(gps_verified=False)에까지 주면 그 정의가 무너진다.
     if not gps_verified:
-        return None
+        return AwardResult(skip_reason=SKIP_NOT_VERIFIED)
 
     # 이미 지급된 건인가. 제보는 report.id가 매번 새로워 걸릴 일이 없고, 답변은
     # source_id가 question_id라 같은 질문에 두 번째 답변부터 여기서 걸러진다(P14).
@@ -130,7 +163,7 @@ async def prepare_award(
         )
     )
     if already is not None:
-        return None
+        return AwardResult(skip_reason=SKIP_ALREADY_AWARDED)
 
     # 같은 장소 하루 N건 상한. 여러 관광지를 도는 정상 사용자는 이 제한을 느끼지 않고,
     # 한 곳에서 제보를 반복해 무한 적립하는 경로만 막힌다.
@@ -144,25 +177,27 @@ async def prepare_award(
             )
         )
         if (used or 0) >= settings.CREDIT_DAILY_LIMIT_PER_SPOT:
-            return None
+            return AwardResult(skip_reason=SKIP_DAILY_LIMIT)
 
     # 잔액 캐시 갱신도 같은 트랜잭션에 들어간다(P3). 원장과 캐시가 따로 commit되면
     # 둘이 어긋난 순간이 생긴다.
     user.credit_balance = (user.credit_balance or 0) + amount
 
-    return CreditLedger(
-        user_id=user.id,
-        amount=amount,
-        reason=reason,
-        source_type=source_type,
-        source_id=source_id,
-        spot_content_id=spot_content_id,
+    return AwardResult(
+        ledger=CreditLedger(
+            user_id=user.id,
+            amount=amount,
+            reason=reason,
+            source_type=source_type,
+            source_id=source_id,
+            spot_content_id=spot_content_id,
+        )
     )
 
 
 async def prepare_report_award(
     db: AsyncSession, user: User, *, report_id: str, spot_content_id: str, gps_verified: bool
-) -> Optional[CreditLedger]:
+) -> AwardResult:
     """제보 적립. source_id는 report.id — 제보 1건당 1회."""
     return await prepare_award(
         db, user,
@@ -177,7 +212,7 @@ async def prepare_report_award(
 
 async def prepare_answer_award(
     db: AsyncSession, user: User, *, question_id: str, spot_content_id: str, gps_verified: bool
-) -> Optional[CreditLedger]:
+) -> AwardResult:
     """답변 적립. source_id는 **answer.id가 아니라 question.id**다 — 한 질문에 여러 답변을
     다는 것은 허용이지만 적립은 질문당 1회다(P14).
 
