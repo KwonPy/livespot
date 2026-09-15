@@ -61,7 +61,7 @@ class _CreditLedgerScreenState extends State<CreditLedgerScreen> {
             _buildSummaryCard(),
             const SizedBox(height: 16),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+              padding: const EdgeInsets.symmetric(horizontal: LiveSpotTheme.screenPadding),
               child: Text('적립 내역',
                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey[700])),
             ),

@@ -216,11 +216,11 @@ class _QaSectionState extends State<QaSection> {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Icon(Icons.chat_bubble_outline, size: 14, color: q.answerCount > 0 ? Colors.green : Colors.orange),
+                    Icon(Icons.chat_bubble_outline, size: 14, color: q.answerCount > 0 ? LiveSpotTheme.successColor : LiveSpotTheme.warningColor),
                     const SizedBox(width: 4),
                     Text(
                       q.answerCount > 0 ? '답변 ${q.answerCount}개' : '답변 대기',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: q.answerCount > 0 ? Colors.green : Colors.orange),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: q.answerCount > 0 ? LiveSpotTheme.successColor : LiveSpotTheme.warningColor),
                     ),
                     const Spacer(),
                     Text(Formatters.timeAgo(q.createdAt), style: TextStyle(fontSize: 10, color: Colors.grey[400])),

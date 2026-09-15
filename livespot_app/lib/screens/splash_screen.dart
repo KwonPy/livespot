@@ -96,7 +96,7 @@ class _SplashScreenState extends State<SplashScreen>
                       ),
                       child: const Center(
                         child: Icon(
-                          Icons.explore,
+                          Icons.location_on,
                           color: Color(0xFF1E88E5),
                           size: 50,
                         ),

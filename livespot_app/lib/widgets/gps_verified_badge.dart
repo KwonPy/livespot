@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../config/theme.dart';
 
 class GpsVerifiedBadge extends StatelessWidget {
   const GpsVerifiedBadge({super.key});
@@ -6,11 +7,11 @@ class GpsVerifiedBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: LiveSpotTheme.badgePadding,
       decoration: BoxDecoration(
         color: Colors.blue.withOpacity(0.1),
         border: Border.all(color: Colors.blue),
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.circular(LiveSpotTheme.badgeRadius),
       ),
       child: const Row(
         mainAxisSize: MainAxisSize.min,

@@ -78,11 +78,14 @@ async def get_live_status(content_id: str, db: AsyncSession = Depends(get_db)):
 async def get_hotspots(limit: int = 5, db: AsyncSession = Depends(get_db)):
     """실시간 핫스팟 TOP N (Live 페이지). 관광지별 혼잡 상태를 두 소스 중 하나로 판정한다.
 
-    1순위: 최근 LIVE_WINDOW_HOURS 안의 실제 현장 제보. 2순위: 그런 제보가 없는 관광지는
-    한국관광공사 방문 집중률 예측으로 대체한다(서울 전체 관광지 대상). 정렬은 소스를 섞지
-    않는다 — 제보가 있는 관광지를 전부 먼저 나열(혼잡도 desc → 제보 최신성 desc → 제보
-    건수 desc)하고, 그래도 자리가 남으면 집중률 desc로 채운다. (function.md 기능 9 원칙:
-    두 데이터는 성격이 달라 하나의 값으로 섞지 않는다 — 여기서는 "섞지 않는 정렬"로 반영.)
+    1순위: 최근 LIVE_WINDOW_HOURS 안의 실제 현장 제보 — 지역·콘텐트타입 제한 없이 전국 어디든
+    반영. 2순위: 그런 제보가 없는 관광지는 한국관광공사 방문 집중률 예측으로 대체한다
+    (서울+경기, 콘텐트타입 "관광지"(12)로 고정 — 지역을 전국으로 넓히거나 문화시설/쇼핑/
+    레포츠 등을 섞으면 집중률이 상대 비율 지표라 국기원·시장·박물관 같은 생뚱맞은 곳이
+    상단에 뜬다는 걸 실측으로 확인함). 정렬은 소스를 섞지 않는다 — 제보가 있는 관광지를
+    전부 먼저 나열(혼잡도 desc → 제보 최신성 desc → 제보 건수 desc)하고, 그래도 자리가
+    남으면 집중률 desc로 채운다. (function.md 기능 9 원칙: 두 데이터는 성격이 달라 하나의
+    값으로 섞지 않는다 — 여기서는 "섞지 않는 정렬"로 반영.)
     """
     cutoff = _window_cutoff()
     spot_ids = (
@@ -129,9 +132,27 @@ async def get_hotspots(limit: int = 5, db: AsyncSession = Depends(get_db)):
 
     remaining = limit - len(results)
     if remaining > 0:
-        # 제보가 부족한 나머지 자리는 집중률 예측으로 채운다. 서울 전체 관광지가 후보군이며
-        # (기존 "/spots/all"과 동일 소스), 이미 제보로 뽑힌 관광지는 중복으로 넣지 않는다.
-        all_spots = await tour_service.get_all_seoul_spots(num_of_rows=30)
+        # 제보가 부족한 나머지 자리는 집중률 예측으로 채운다. 후보군은 서울+경기 · 콘텐트타입
+        # "관광지"(12)로 고정한다 — 지역을 전국으로 열거나 문화시설/쇼핑/레포츠 등 다른
+        # 타입까지 섞으면 집중률(상대 비율) 특성상 국기원·시장·박물관 같은 생뚱맞은 곳이
+        # 상단에 뜬다(실측으로 직접 확인함). 실측 제보(위 REPORT 구간)는 지역·타입 제한 없이
+        # 그대로 반영된다 — 이 제한은 예측 fallback에만 적용.
+        #
+        # num_of_rows를 넉넉히 잡는 이유: TourAPI의 arrange="O"(제목순)는 가나다순 1페이지만
+        # 가져오면 결과가 전부 'ㄱ'으로 시작하는 관광지에 몰린다(실측 확인 — 서울 관광지
+        # 387건, 경기 833건이라 기존 num_of_rows=30으로는 첫 페이지가 'ㄱ' 구간을 못 벗어남).
+        # 두 지역 모두 총량 이상으로 넉넉히 요청해 한 페이지로 전체를 받으면 그 안에서
+        # 집중률 desc로 다시 정렬하므로 시작 글자 편향이 없어진다.
+        attraction_type_id = tour_service.CONTENT_TYPES["관광지"]
+        seoul_spots, gyeonggi_spots = await asyncio.gather(
+            tour_service.get_all_seoul_spots(
+                num_of_rows=1000, area_code=tour_service.AREA_CODE_SEOUL, content_type_ids=[attraction_type_id]
+            ),
+            tour_service.get_all_seoul_spots(
+                num_of_rows=1000, area_code=tour_service.AREA_CODE_GYEONGGI, content_type_ids=[attraction_type_id]
+            ),
+        )
+        all_spots = seoul_spots + gyeonggi_spots
         seen_ids = set()
         candidates = []
         for s in all_spots:

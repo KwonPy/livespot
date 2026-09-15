@@ -180,10 +180,10 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
 
   Widget _buildFeedCard(Map<String, dynamic> item) {
     final crowdColor = item['crowdedness'] == 'green'
-        ? Colors.green
+        ? LiveSpotTheme.successColor
         : item['crowdedness'] == 'yellow'
-            ? Colors.orange
-            : Colors.red;
+            ? LiveSpotTheme.warningColor
+            : LiveSpotTheme.dangerColor;
     final crowdText = item['crowdedness'] == 'green'
         ? '여유'
         : item['crowdedness'] == 'yellow'

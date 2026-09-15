@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../config/theme.dart';
 import '../models/question.dart';
 import '../services/api_service.dart';
 import '../utils/formatters.dart';
@@ -123,11 +124,11 @@ class _GlobalQaListState extends State<GlobalQaList> {
               const SizedBox(height: 6),
               Row(
                 children: [
-                  Icon(Icons.chat_bubble_outline, size: 14, color: q.answerCount > 0 ? Colors.green : Colors.orange),
+                  Icon(Icons.chat_bubble_outline, size: 14, color: q.answerCount > 0 ? LiveSpotTheme.successColor : LiveSpotTheme.warningColor),
                   const SizedBox(width: 4),
                   Text(
                     q.answerCount > 0 ? '답변 ${q.answerCount}개' : '답변 대기',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: q.answerCount > 0 ? Colors.green : Colors.orange),
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: q.answerCount > 0 ? LiveSpotTheme.successColor : LiveSpotTheme.warningColor),
                   ),
                 ],
               ),

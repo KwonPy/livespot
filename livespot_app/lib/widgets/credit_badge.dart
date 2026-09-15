@@ -26,10 +26,10 @@ class CreditBadgeChip extends StatelessWidget {
     final Color tint = onDark ? Colors.white : LiveSpotTheme.primaryColor;
 
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: large ? 14 : 8, vertical: large ? 8 : 4),
+      padding: large ? const EdgeInsets.symmetric(horizontal: 14, vertical: 8) : LiveSpotTheme.badgePadding,
       decoration: BoxDecoration(
         color: tint.withValues(alpha: onDark ? 0.18 : 0.1),
-        borderRadius: BorderRadius.circular(large ? 12 : 8),
+        borderRadius: BorderRadius.circular(large ? 12 : LiveSpotTheme.badgeRadius),
         border: Border.all(color: tint.withValues(alpha: 0.3)),
       ),
       child: Row(

@@ -495,7 +495,7 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
               child: Text(
                 widget.spot.title,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16, shadows: [Shadow(color: Colors.black45, blurRadius: 8)]),
+                style: LiveSpotTheme.title.copyWith(color: Colors.white, shadows: const [Shadow(color: Colors.black45, blurRadius: 8)]),
               ),
             ),
             if (_weather != null && !_appBarCollapsed) ...[
@@ -547,22 +547,22 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
               if (isLive) ...[
                 Container(width: 10, height: 10, decoration: const BoxDecoration(color: Color(0xFFFF1744), shape: BoxShape.circle)),
                 const SizedBox(width: 6),
-                const Text('LIVE', style: TextStyle(color: Color(0xFFFF1744), fontWeight: FontWeight.w900, fontSize: 14)),
+                Text('LIVE', style: LiveSpotTheme.body.copyWith(color: const Color(0xFFFF1744), fontWeight: FontWeight.w900)),
               ] else
-                Text('오프라인', style: TextStyle(color: Colors.grey[400], fontWeight: FontWeight.w600, fontSize: 14)),
+                Text('오프라인', style: LiveSpotTheme.body.copyWith(color: LiveSpotTheme.textSecondary, fontWeight: FontWeight.w600)),
               const Spacer(),
               // 예전에는 여기에 "최근 2시간 기준"이 있었다. 아래 통계 행에 시간창이 다른
               // 값(현장 인원 = 30분)이 합류하면서, 헤더의 한 문장이 두 숫자를 다 대표하는
               // 것처럼 보이게 됐다 — 기준은 칸마다 따로 적고 헤더에서는 뺀다(P15).
               if (_liveStatusLoading)
-                Text('불러오는 중...', style: TextStyle(fontSize: 11, color: Colors.grey[400]))
+                Text('불러오는 중...', style: LiveSpotTheme.label.copyWith(color: LiveSpotTheme.textSecondary))
               else if (failed)
                 Row(
                   children: [
                     Icon(Icons.error_outline, size: 13, color: Colors.red.shade300),
                     const SizedBox(width: 4),
                     Text('상태를 불러오지 못했어요',
-                        style: TextStyle(fontSize: 11, color: Colors.red.shade400, fontFamily: 'Pretendard')),
+                        style: LiveSpotTheme.label.copyWith(color: Colors.red.shade400)),
                   ],
                 ),
             ],
@@ -599,7 +599,7 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
             const SizedBox(height: 12),
             const Divider(height: 1),
             const SizedBox(height: 8),
-            Text('최근 활동', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[600])),
+            Text('최근 활동', style: LiveSpotTheme.caption.copyWith(fontWeight: FontWeight.w600, color: LiveSpotTheme.textSecondary)),
             const SizedBox(height: 6),
             ...recentActivities.map((r) {
               final summary = '제보: 혼잡도 ${MockDataService.crowdednessLabel(r.crowdednessLevel)}, 대기 ${MockDataService.waitingTimeLabel(r.waitingTime)}';
@@ -609,8 +609,8 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
                   children: [
                     const Icon(Icons.edit, size: 14, color: Colors.green),
                     const SizedBox(width: 6),
-                    Expanded(child: Text(summary, style: TextStyle(fontSize: 12, color: Colors.grey[700]), overflow: TextOverflow.ellipsis)),
-                    Text(Formatters.timeAgo(r.createdAt), style: TextStyle(fontSize: 10, color: Colors.grey[400])),
+                    Expanded(child: Text(summary, style: LiveSpotTheme.caption.copyWith(color: Colors.grey[700]), overflow: TextOverflow.ellipsis)),
+                    Text(Formatters.timeAgo(r.createdAt), style: LiveSpotTheme.label.copyWith(color: LiveSpotTheme.textSecondary)),
                   ],
                 ),
               );
@@ -638,16 +638,18 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
         children: [
           Icon(icon, color: color, size: 20),
           const SizedBox(height: 4),
-          Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color)),
-          Text(label, style: TextStyle(fontSize: 10, color: Colors.grey[500])),
+          Text(value, style: LiveSpotTheme.body.copyWith(fontWeight: FontWeight.bold, color: color)),
+          Text(label, style: LiveSpotTheme.label.copyWith(color: LiveSpotTheme.textSecondary)),
           if (note != null) ...[
             const SizedBox(height: 2),
+            // 9px 유지: 통계 칸 하나(폭 좁음) 안에 값/라벨/note 3줄이 들어가야 해서
+            // label(11)보다 작아야 한다 — 의도된 스케일 밖 예외.
             Text(
               note,
               textAlign: TextAlign.center,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 9, color: Colors.grey[400]),
+              style: const TextStyle(fontSize: 9, color: LiveSpotTheme.textSecondary),
             ),
           ],
         ],
@@ -683,11 +685,11 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
         children: [
           Row(
             children: [
-              Text('📊 방문 집중률 예측', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[600])),
+              Text('📊 방문 집중률 예측', style: LiveSpotTheme.caption.copyWith(fontWeight: FontWeight.w600, color: LiveSpotTheme.textSecondary)),
               const Spacer(),
               Text(
                 _congestionLoading ? '불러오는 중...' : '한국관광공사 예측',
-                style: TextStyle(fontSize: 11, color: Colors.grey[400]),
+                style: LiveSpotTheme.label.copyWith(color: LiveSpotTheme.textSecondary),
               ),
             ],
           ),
@@ -695,32 +697,33 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
           if (hasRate) ...[
             Row(
               children: [
-                Text('${rate.toStringAsFixed(0)}%',
-                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                // heading(20) 유지: 타이포 스케일 최댓값 초과분은 예외를 두지 않고 스케일
+                // 안으로 줄인다(design_brief.md §3-6 결정 — live_screen '라이브' 24→20과 동일 판단).
+                Text('${rate.toStringAsFixed(0)}%', style: LiveSpotTheme.heading),
                 const SizedBox(width: 8),
                 CrowdednessBadge(level: info!.level),
               ],
             ),
             const SizedBox(height: 6),
             Text('과거 방문 패턴으로 예측한 오늘의 값이에요. 지금 이 순간의 실측이 아닙니다.',
-                style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                style: LiveSpotTheme.caption.copyWith(color: LiveSpotTheme.textSecondary)),
             if (matchedElsewhere) ...[
               const SizedBox(height: 4),
               Text("'$matchedName' 기준 예측값이에요.",
-                  style: TextStyle(fontSize: 11, color: Colors.orange[700])),
+                  style: LiveSpotTheme.label.copyWith(color: Colors.orange[700])),
             ],
           ] else if (!_congestionLoading) ...[
-            Text('예측 대상 아님', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.grey[500])),
+            Text('예측 대상 아님', style: LiveSpotTheme.body.copyWith(fontWeight: FontWeight.w600, color: LiveSpotTheme.textSecondary)),
             const SizedBox(height: 4),
             Text('집중률 예측은 주요 관광지를 대상으로 제공돼요.',
-                style: TextStyle(fontSize: 12, color: Colors.grey[400], height: 1.4)),
+                style: LiveSpotTheme.caption.copyWith(color: LiveSpotTheme.textSecondary, height: 1.4)),
           ],
           if (note != null) ...[
             const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(color: Colors.blue[50], borderRadius: BorderRadius.circular(8)),
-              child: Text(note, style: TextStyle(fontSize: 12, color: Colors.blue[800], height: 1.4)),
+              child: Text(note, style: LiveSpotTheme.caption.copyWith(color: Colors.blue[800], height: 1.4)),
             ),
           ],
         ],
@@ -762,15 +765,15 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('오늘의 현장 상황', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[600])),
+          Text('오늘의 현장 상황', style: LiveSpotTheme.caption.copyWith(fontWeight: FontWeight.w600, color: LiveSpotTheme.textSecondary)),
           const SizedBox(height: 8),
           Row(
             children: [
-              _buildDashItem(Icons.people_alt_rounded, '혼잡도', crowd, crowdCode == null ? Colors.grey : _crowdColor(crowdCode)),
+              _buildDashItem(Icons.people_alt_rounded, '혼잡도', crowd, crowdCode == null ? LiveSpotTheme.textSecondary : _crowdColor(crowdCode)),
               const SizedBox(width: 10),
-              _buildDashItem(Icons.access_time_rounded, '대기시간', wait, waitCode == null ? Colors.grey : LiveSpotTheme.primaryColor),
+              _buildDashItem(Icons.access_time_rounded, '대기시간', wait, waitCode == null ? LiveSpotTheme.textSecondary : LiveSpotTheme.primaryColor),
               const SizedBox(width: 10),
-              _buildDashItem(Icons.local_parking_rounded, '주차', park, parkCode == null ? Colors.grey : _crowdColor(parkCode)),
+              _buildDashItem(Icons.local_parking_rounded, '주차', park, parkCode == null ? LiveSpotTheme.textSecondary : _crowdColor(parkCode)),
             ],
           ),
         ],
@@ -778,7 +781,11 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
     );
   }
 
-  Color _crowdColor(String code) => code == 'EASY' ? Colors.green : code == 'NORMAL' ? Colors.orange : Colors.red;
+  Color _crowdColor(String code) => code == 'EASY'
+      ? LiveSpotTheme.successColor
+      : code == 'NORMAL'
+          ? LiveSpotTheme.warningColor
+          : LiveSpotTheme.dangerColor;
 
   Widget _buildDashItem(IconData icon, String label, String value, Color color) {
     return Expanded(
@@ -789,9 +796,9 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
           children: [
             Icon(icon, color: color, size: 22),
             const SizedBox(height: 4),
-            Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+            Text(label, style: LiveSpotTheme.label.copyWith(color: LiveSpotTheme.textSecondary)),
             const SizedBox(height: 2),
-            Text(value, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color)),
+            Text(value, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: LiveSpotTheme.caption.copyWith(fontWeight: FontWeight.bold, color: color)),
           ],
         ),
       ),
@@ -819,7 +826,11 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF1E88E5), Color(0xFF7C4DFF)]), borderRadius: BorderRadius.circular(6)),
-                child: const Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.auto_awesome, color: Colors.white, size: 14), SizedBox(width: 4), Text('AI 브리핑', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold))]),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.auto_awesome, color: Colors.white, size: 14),
+                  const SizedBox(width: 4),
+                  Text('AI 브리핑', style: LiveSpotTheme.caption.copyWith(color: Colors.white, fontWeight: FontWeight.bold)),
+                ]),
               ),
               const Spacer(),
               // ⚠️ 이 라벨은 **실제로 Gemini가 문장을 쓴 경우에만** 붙는다.
@@ -828,14 +839,14 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
               // 붙어 있었다 — 없는 근거를 주장하는 상태였다.
               // 판정은 Briefing.isAiGenerated 하나로 모으고, 모르는 source 값은 false다.
               if (briefing != null && briefing.isAiGenerated)
-                Text('Gemini로 생성됨', style: TextStyle(fontSize: 11, color: Colors.grey[400])),
+                Text('Gemini로 생성됨', style: LiveSpotTheme.label.copyWith(color: LiveSpotTheme.textSecondary)),
             ],
           ),
           const SizedBox(height: 12),
           if (briefing == null)
             _buildBriefingSkeleton()
           else
-            Text(_displayedBriefing, style: TextStyle(fontSize: 14, height: 1.6, color: Colors.grey[700])),
+            Text(_displayedBriefing, style: LiveSpotTheme.body.copyWith(height: 1.6, color: Colors.grey[700])),
         ],
       ),
     );
@@ -868,7 +879,7 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
     }
     final rawText = _spotDetail!['overview'].toString();
     final cleanText = _cleanOverviewText(rawText);
-    const textStyle = TextStyle(fontSize: 14, height: 1.6, color: Color(0xFF616161)); // Colors.grey[700]
+    final textStyle = LiveSpotTheme.body.copyWith(height: 1.6, color: Colors.grey[700]);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -876,7 +887,7 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('관광지 소개', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey[800])),
+          Text('관광지 소개', style: LiveSpotTheme.title.copyWith(color: Colors.grey[800])),
           const SizedBox(height: 8),
           // 기본 5줄까지만 보여주고, 5줄을 넘칠 때만 더보기/접기를 노출한다.
           // TextPainter로 실제 렌더 폭 기준 줄바꿈 여부를 재서 넘치는지 판단한다 —
@@ -905,7 +916,7 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
                       onTap: () => setState(() => _overviewExpanded = !_overviewExpanded),
                       child: Text(
                         _overviewExpanded ? '접기' : '더보기',
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: LiveSpotTheme.primaryColor),
+                        style: LiveSpotTheme.body.copyWith(fontWeight: FontWeight.w600, color: LiveSpotTheme.primaryColor),
                       ),
                     ),
                   ],
@@ -945,7 +956,7 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('기본 정보', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey[800])),
+          Text('기본 정보', style: LiveSpotTheme.title.copyWith(color: Colors.grey[800])),
           const SizedBox(height: 12),
           _infoRow(Icons.location_on_outlined, '주소', widget.spot.address ?? '정보 없음'),
           if (_spotDetail?['tel'] != null && _spotDetail!['tel']!.toString().isNotEmpty)
@@ -1001,8 +1012,8 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
         children: [
           Icon(icon, size: 18, color: Colors.grey[500]),
           const SizedBox(width: 8),
-          SizedBox(width: 60, child: Text(label, style: TextStyle(fontSize: 13, color: Colors.grey[500]))),
-          Expanded(child: Text(cleaned, style: TextStyle(fontSize: 13, color: Colors.grey[800]))),
+          SizedBox(width: 60, child: Text(label, style: LiveSpotTheme.body.copyWith(color: LiveSpotTheme.textSecondary))),
+          Expanded(child: Text(cleaned, style: LiveSpotTheme.body.copyWith(color: Colors.grey[800]))),
         ],
       ),
     );
@@ -1016,7 +1027,7 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('📝 현장 제보', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey[800])),
+          Text('📝 현장 제보', style: LiveSpotTheme.title.copyWith(color: Colors.grey[800])),
           const SizedBox(height: 8),
           if (_reportsLoading)
             const Padding(
@@ -1027,7 +1038,7 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(12)),
-              child: Center(child: Text('아직 제보가 없어요.\n첫 번째 현장 제보를 남겨보세요!', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey[400]))),
+              child: Center(child: Text('아직 제보가 없어요.\n첫 번째 현장 제보를 남겨보세요!', textAlign: TextAlign.center, style: LiveSpotTheme.body.copyWith(color: LiveSpotTheme.textSecondary))),
             )
           else
             ..._reports.map((r) => Container(
@@ -1039,13 +1050,15 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
                     children: [
                       Row(
                         children: [
+                          // 10px 유지: 24px 아바타 원 안에 들어가는 이니셜 한 글자라 label(11)보다
+                          // 작아야 한다 — 의도된 스케일 밖 예외(다른 작은 배지들과 같은 이유).
                           CircleAvatar(radius: 12, backgroundColor: LiveSpotTheme.primaryColor.withOpacity(0.2), child: Text(r.userNickname.substring(0, 1), style: const TextStyle(fontSize: 10, color: LiveSpotTheme.primaryColor, fontWeight: FontWeight.bold))),
                           const SizedBox(width: 6),
-                          Text(r.userNickname, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                          Text(r.userNickname, style: LiveSpotTheme.caption.copyWith(fontWeight: FontWeight.w600)),
                           const SizedBox(width: 4),
                           if (r.gpsVerified) const GpsVerifiedBadge(),
                           const Spacer(),
-                          Text(Formatters.reportRecency(r.createdAt), style: TextStyle(fontSize: 10, color: Colors.grey[400])),
+                          Text(Formatters.reportRecency(r.createdAt), style: LiveSpotTheme.label.copyWith(color: LiveSpotTheme.textSecondary)),
                         ],
                       ),
                       const SizedBox(height: 6),
@@ -1059,7 +1072,7 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
                       ),
                       if (r.comment != null) ...[
                         const SizedBox(height: 4),
-                        Text(r.comment!, style: TextStyle(fontSize: 13, color: Colors.grey[700])),
+                        Text(r.comment!, style: LiveSpotTheme.body.copyWith(color: Colors.grey[700])),
                       ],
                     ],
                   ),
@@ -1070,6 +1083,8 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
   }
 
   Widget _chipBadge(String text, Color color) {
+    // 10px 유지: 세로 패딩 2인 초소형 칩이라 label(11)보다 작아야 한다 — 다른 배지
+    // 예외들과 같은 이유(design_brief.md §3-6).
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),

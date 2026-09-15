@@ -265,12 +265,12 @@ class _MapScreenState extends State<MapScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('지도 마커 색상 안내', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const Text('지도 마커 색상 안내', style: LiveSpotTheme.title),
               const SizedBox(height: 4),
               Text(
                 '한국관광공사 방문 집중률 "예측" 기준입니다. 과거 방문 패턴으로 예측한 값이라\n'
                 '실시간 현장 상황과 다를 수 있어요. 실제 현장 제보는 관광지 상세페이지에서 확인하세요.',
-                style: TextStyle(fontSize: 12, color: Colors.grey[600], height: 1.4),
+                style: LiveSpotTheme.caption.copyWith(color: LiveSpotTheme.textSecondary, height: 1.4),
               ),
               const SizedBox(height: 16),
               _legendRow(const Color(0xFF4CAF50), '여유 (집중률 0~39%)'),
@@ -281,7 +281,7 @@ class _MapScreenState extends State<MapScreen> {
               Text(
                 '집중률 예측은 주요 관광지를 대상으로 제공돼요. 축제·상점·조형물 등은\n'
                 '예측 대상이 아니라서, 값을 지어내지 않고 테두리 없이 표시합니다.',
-                style: TextStyle(fontSize: 11, color: Colors.grey[500], height: 1.4),
+                style: LiveSpotTheme.label.copyWith(color: LiveSpotTheme.textSecondary, height: 1.4),
               ),
             ],
           ),
@@ -306,7 +306,7 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
           const SizedBox(width: 8),
-          Text(label, style: const TextStyle(fontSize: 13)),
+          Text(label, style: LiveSpotTheme.body),
         ],
       ),
     );
@@ -396,13 +396,13 @@ class _MapScreenState extends State<MapScreen> {
           if (_isLoading)
             Container(
               color: Colors.white.withOpacity(0.8),
-              child: const Center(
+              child: Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text('주변 관광지를 검색 중...', style: TextStyle(color: Colors.black54, fontFamily: 'Pretendard')),
+                    const CircularProgressIndicator(),
+                    const SizedBox(height: 16),
+                    Text('주변 관광지를 검색 중...', style: LiveSpotTheme.body.copyWith(color: Colors.black54)),
                   ],
                 ),
               ),
@@ -428,12 +428,12 @@ class _MapScreenState extends State<MapScreen> {
                     Expanded(
                       child: Text(
                         '서버에 연결할 수 없습니다. 백엔드가 실행 중인지 확인해주세요.',
-                        style: TextStyle(color: Colors.red[700], fontSize: 12),
+                        style: LiveSpotTheme.caption.copyWith(color: Colors.red[700]),
                       ),
                     ),
                     GestureDetector(
                       onTap: _getUserLocationAndFetch,
-                      child: Text('재시도', style: TextStyle(color: Colors.red[700], fontSize: 12, fontWeight: FontWeight.bold)),
+                      child: Text('재시도', style: LiveSpotTheme.caption.copyWith(color: Colors.red[700], fontWeight: FontWeight.bold)),
                     ),
                   ],
                 ),
@@ -470,9 +470,10 @@ class _MapScreenState extends State<MapScreen> {
                           _gpsObtained
                               ? '내 위치 주변 관광지 (${_spots.length}개)'
                               : '서울 시청 주변 관광지 (${_spots.length}개)',
-                          style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                          style: LiveSpotTheme.body.copyWith(color: LiveSpotTheme.textSecondary),
                         ),
                       ),
+                      const Icon(Icons.location_on, color: LiveSpotTheme.primaryColor, size: 22),
                       const SizedBox(width: 16),
                     ],
                   ),

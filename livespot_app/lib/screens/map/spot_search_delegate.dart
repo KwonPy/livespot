@@ -126,7 +126,7 @@ class _SearchBody extends StatelessWidget {
       builder: (context, s, _) {
         switch (s.status) {
           case _SearchStatus.idle:
-            return const _CenterMessage(icon: Icons.search, text: '관광지 이름이나 지역으로 검색해보세요');
+            return const _CenterMessage(icon: Icons.location_on, text: '관광지 이름이나 지역으로 검색해보세요');
           case _SearchStatus.loading:
             return const Center(child: CircularProgressIndicator());
           case _SearchStatus.error:

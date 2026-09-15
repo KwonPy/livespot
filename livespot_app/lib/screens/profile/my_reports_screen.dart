@@ -30,8 +30,11 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
     await _reportsFuture.then<void>((_) {}, onError: (Object _) {});
   }
 
-  Color _crowdColor(String code) =>
-      code == 'EASY' ? Colors.green : code == 'NORMAL' ? Colors.orange : Colors.red;
+  Color _crowdColor(String code) => code == 'EASY'
+      ? LiveSpotTheme.successColor
+      : code == 'NORMAL'
+          ? LiveSpotTheme.warningColor
+          : LiveSpotTheme.dangerColor;
 
   @override
   Widget build(BuildContext context) {

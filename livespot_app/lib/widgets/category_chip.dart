@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../config/theme.dart';
 
 class CategoryChip extends StatelessWidget {
   final String label;
@@ -20,7 +21,7 @@ class CategoryChip extends StatelessWidget {
         margin: const EdgeInsets.only(right: 8),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.blue : Colors.grey[200],
+          color: isSelected ? LiveSpotTheme.primaryColor : Colors.grey[200],
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(

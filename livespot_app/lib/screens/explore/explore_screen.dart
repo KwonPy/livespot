@@ -154,7 +154,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
           child: Row(children: [
-            const Text('🔥 인기 급상승', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Icon(Icons.local_fire_department_rounded, size: 20, color: Colors.deepOrange),
+            const SizedBox(width: 6),
+            const Text('인기 급상승', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const Spacer(),
             TextButton(onPressed: () {}, child: Text('전체보기', style: TextStyle(fontSize: 13, color: Colors.grey[500]))),
           ]),
@@ -187,7 +189,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 itemBuilder: (context, index) {
                   final r = rankings[index];
                   final spot = spots.where((s) => s.contentId == r.contentId).firstOrNull;
-                  final crowdColor = r.displayLevel == 'EASY' ? Colors.green : r.displayLevel == 'NORMAL' ? Colors.orange : Colors.red;
+                  final crowdColor = r.displayLevel == 'EASY'
+                      ? LiveSpotTheme.successColor
+                      : r.displayLevel == 'NORMAL'
+                          ? LiveSpotTheme.warningColor
+                          : LiveSpotTheme.dangerColor;
                   return GestureDetector(
                     onTap: () {
                       if (spot != null) {

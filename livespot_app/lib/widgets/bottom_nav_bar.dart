@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../config/theme.dart';
 
 class CustomBottomNavBar extends StatelessWidget {
   final int currentIndex;
@@ -52,7 +53,7 @@ class CustomBottomNavBar extends StatelessWidget {
             Icon(
               icon,
               size: 24,
-              color: isSelected ? const Color(0xFF1E88E5) : Colors.grey[400],
+              color: isSelected ? LiveSpotTheme.primaryColor : LiveSpotTheme.textSecondary,
             ),
             const SizedBox(height: 2),
             Text(
@@ -60,7 +61,7 @@ class CustomBottomNavBar extends StatelessWidget {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                color: isSelected ? const Color(0xFF1E88E5) : Colors.grey[400],
+                color: isSelected ? LiveSpotTheme.primaryColor : LiveSpotTheme.textSecondary,
               ),
             ),
           ],
@@ -85,7 +86,7 @@ class CustomBottomNavBar extends StatelessWidget {
                 Icon(
                   Icons.sensors_rounded,
                   size: 24,
-                  color: isSelected ? const Color(0xFFFF1744) : Colors.grey[400],
+                  color: isSelected ? const Color(0xFFFF1744) : LiveSpotTheme.textSecondary,
                 ),
                 Positioned(
                   top: -2,
@@ -94,7 +95,7 @@ class CustomBottomNavBar extends StatelessWidget {
                     width: 8,
                     height: 8,
                     decoration: BoxDecoration(
-                      color: isSelected ? const Color(0xFFFF1744) : Colors.grey[400],
+                      color: isSelected ? const Color(0xFFFF1744) : LiveSpotTheme.textSecondary,
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -107,7 +108,7 @@ class CustomBottomNavBar extends StatelessWidget {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                color: isSelected ? const Color(0xFFFF1744) : Colors.grey[400],
+                color: isSelected ? const Color(0xFFFF1744) : LiveSpotTheme.textSecondary,
               ),
             ),
           ],

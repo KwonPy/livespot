@@ -14,8 +14,9 @@ class TourAPIService:
 
     BASE_URL = "https://apis.data.go.kr/B551011/KorService2"
 
-    # 서울 지역코드
+    # 지역코드 (TourAPI 자체 체계 1~39 — region_codes.py의 행정표준코드와는 다른 값)
     AREA_CODE_SEOUL = "1"
+    AREA_CODE_GYEONGGI = "31"
 
     # 주요 콘텐트타입
     CONTENT_TYPES = {
@@ -86,18 +87,19 @@ class TourAPIService:
 
     async def get_area_based_list(
         self,
-        area_code: str = "1",
+        area_code: Optional[str] = "1",
         content_type_id: Optional[str] = None,
         page: int = 1,
         num_of_rows: int = 50,
     ) -> List[Dict]:
-        """areaBasedList2 - 지역 기반 관광지 목록 조회"""
+        """areaBasedList2 - 지역 기반 관광지 목록 조회. area_code=None이면 전국 대상(areaCode 미지정)."""
         params = {
-            "areaCode": area_code,
             "pageNo": page,
             "numOfRows": num_of_rows,
             "arrange": "O",  # 제목순
         }
+        if area_code:
+            params["areaCode"] = area_code
         if content_type_id:
             params["contentTypeId"] = content_type_id
 
@@ -111,25 +113,36 @@ class TourAPIService:
         self._cache.set(cache_key, items, ttl_seconds=300)
         return items
 
-    async def get_all_seoul_spots(self, num_of_rows: int = 50) -> List[Dict]:
-        """서울 주요 관광지 전체 조회 (콘텐트타입 12, 14, 15, 25, 28) - 병렬 호출"""
+    async def get_all_seoul_spots(
+        self,
+        num_of_rows: int = 50,
+        area_code: Optional[str] = AREA_CODE_SEOUL,
+        content_type_ids: Optional[List[str]] = None,
+    ) -> List[Dict]:
+        """주요 관광지 전체 조회 - 병렬 호출.
+
+        area_code 기본값은 서울(호출부 하위 호환용) — 호출부가 다른 지역코드를 넘기면
+        그 지역 대상으로 돈다(hotspots 집중률 fallback은 서울+경기를 각각 호출해 합친다).
+        content_type_ids 기본값은 None이면 CONTENT_TYPES 전체(12,14,15,25,28,38)를 돈다.
+        hotspots처럼 "관광지"만 필요하면 ["12"]처럼 좁혀서 넘긴다."""
+        type_ids = content_type_ids if content_type_ids is not None else list(self.CONTENT_TYPES.values())
         tasks = [
             self.get_area_based_list(
-                area_code=self.AREA_CODE_SEOUL,
+                area_code=area_code,
                 content_type_id=type_id,
                 num_of_rows=num_of_rows,
             )
-            for type_id in self.CONTENT_TYPES.values()
+            for type_id in type_ids
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         all_spots = []
-        for (type_name, type_id), result in zip(self.CONTENT_TYPES.items(), results):
+        for type_id, result in zip(type_ids, results):
             if isinstance(result, Exception):
-                logger.error(f"[{type_name}] 조회 실패: {result}")
+                logger.error(f"[contentTypeId={type_id}] 조회 실패: {result}")
                 continue
             all_spots.extend(result)
-            logger.info(f"[{type_name}] {len(result)}건 조회")
+            logger.info(f"[contentTypeId={type_id}] {len(result)}건 조회")
         return all_spots
 
     # ──────────────────── 공통정보 조회 ────────────────────

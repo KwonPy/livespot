@@ -160,9 +160,9 @@ class _QuickReportModalState extends State<QuickReportModal> {
               Wrap(
                 spacing: 8,
                 children: [
-                  _buildChip('여유', _selectedCrowdedness, Colors.green, (val) => setState(() => _selectedCrowdedness = val)),
-                  _buildChip('보통', _selectedCrowdedness, Colors.orange, (val) => setState(() => _selectedCrowdedness = val)),
-                  _buildChip('혼잡', _selectedCrowdedness, Colors.red, (val) => setState(() => _selectedCrowdedness = val)),
+                  _buildChip('여유', _selectedCrowdedness, LiveSpotTheme.successColor, (val) => setState(() => _selectedCrowdedness = val)),
+                  _buildChip('보통', _selectedCrowdedness, LiveSpotTheme.warningColor, (val) => setState(() => _selectedCrowdedness = val)),
+                  _buildChip('혼잡', _selectedCrowdedness, LiveSpotTheme.dangerColor, (val) => setState(() => _selectedCrowdedness = val)),
                 ],
               ),
               const SizedBox(height: 20),
