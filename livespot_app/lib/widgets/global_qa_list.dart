@@ -114,8 +114,8 @@ class _GlobalQaListState extends State<GlobalQaList> {
       elevation: 0,
       color: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: () => _toggleExpand(q.id),
         child: Padding(
           padding: const EdgeInsets.all(14),

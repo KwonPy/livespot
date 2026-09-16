@@ -14,7 +14,7 @@ from app.models.schemas import (
 )
 from app.services.tour_api import TourAPIService
 from app.services.crowdedness import CrowdednessService
-from app.services.congestion import CongestionService
+from app.services.congestion import congestion_service
 from app.services.photo_gallery import PhotoGalleryService
 from app.services.weather import WeatherService, unavailable_weather
 from app.services.cache import TTLCache
@@ -31,7 +31,6 @@ router = APIRouter()
 
 tour_service = TourAPIService()
 crowdedness_service = CrowdednessService()
-congestion_service = CongestionService()
 photo_service = PhotoGalleryService()
 weather_service = WeatherService()
 gemini_service = GeminiBriefingService()

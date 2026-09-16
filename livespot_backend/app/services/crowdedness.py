@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 from app.models.schemas import CrowdednessInfo
-from app.services.congestion import CongestionService
+from app.services.congestion import congestion_service
 import logging
 
 logger = logging.getLogger(__name__)
@@ -11,7 +11,9 @@ class CrowdednessService:
     """혼잡도 서비스 - 실제 집중률 API + 시간 기반 fallback"""
 
     def __init__(self):
-        self.congestion_service = CongestionService()
+        # 상세페이지·지도와 같은 CongestionService 인스턴스를 공유한다 — 시군구별
+        # 캐시가 갈라지면 같은 데이터를 중복 호출해 일일 쿼터를 낭비한다.
+        self.congestion_service = congestion_service
 
     async def estimate_crowdedness(
         self, spot_id: str, title: str = "", address: Optional[str] = None

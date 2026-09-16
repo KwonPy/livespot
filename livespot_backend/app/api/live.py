@@ -9,7 +9,7 @@ from app.db.session import get_db
 from app.db.models.report import Report
 from app.models.schemas import LiveStatusResponse, HotspotEntry
 from app.services.tour_api import TourAPIService
-from app.services.congestion import CongestionService
+from app.services.congestion import congestion_service
 from app.services.report_window import (
     latest_and_count as _latest_and_count,
     live_window_cutoff_utc as _window_cutoff,
@@ -19,7 +19,6 @@ from app.services.presence import count_onsite_users
 
 router = APIRouter()
 tour_service = TourAPIService()
-congestion_service = CongestionService()
 
 # 혼잡도 우선순위 정렬용. 공식 등급 기준이 아니라 랭킹 정렬만을 위한 내부 값.
 _CROWD_SEVERITY = {"BUSY": 2, "NORMAL": 1, "EASY": 0}
@@ -80,12 +79,19 @@ async def get_hotspots(limit: int = 5, db: AsyncSession = Depends(get_db)):
 
     1순위: 최근 LIVE_WINDOW_HOURS 안의 실제 현장 제보 — 지역·콘텐트타입 제한 없이 전국 어디든
     반영. 2순위: 그런 제보가 없는 관광지는 한국관광공사 방문 집중률 예측으로 대체한다
-    (서울+경기, 콘텐트타입 "관광지"(12)로 고정 — 지역을 전국으로 넓히거나 문화시설/쇼핑/
-    레포츠 등을 섞으면 집중률이 상대 비율 지표라 국기원·시장·박물관 같은 생뚱맞은 곳이
-    상단에 뜬다는 걸 실측으로 확인함). 정렬은 소스를 섞지 않는다 — 제보가 있는 관광지를
-    전부 먼저 나열(혼잡도 desc → 제보 최신성 desc → 제보 건수 desc)하고, 그래도 자리가
-    남으면 집중률 desc로 채운다. (function.md 기능 9 원칙: 두 데이터는 성격이 달라 하나의
-    값으로 섞지 않는다 — 여기서는 "섞지 않는 정렬"로 반영.)
+    (**서울만**, 콘텐트타입 "관광지"(12)로 고정). 정렬은 소스를 섞지 않는다 — 제보가 있는
+    관광지를 전부 먼저 나열(혼잡도 desc → 제보 최신성 desc → 제보 건수 desc)하고, 그래도
+    자리가 남으면 집중률 desc로 채운다. (function.md 기능 9 원칙: 두 데이터는 성격이 달라
+    하나의 값으로 섞지 않는다 — 여기서는 "섞지 않는 정렬"로 반영.)
+
+    집중률 fallback 후보군을 서울로만 좁힌 이유는 두 가지다:
+    1) 지역을 전국으로 넓히거나 문화시설/쇼핑/레포츠 등 다른 타입을 섞으면 집중률이
+       상대 비율 지표라 국기원·시장·박물관 같은 생뚱맞은 곳이 상단에 뜬다(실측 확인).
+    2) 경기도까지 포함하면 집중률 API(TatsCnctrRateService) 호출 대상 시군구가 서울
+       25개에서 서울+경기 약 70개로 3배 가까이 뛴다 — 캐시가 비어 있는 시점(서버 기동
+       직후, 자정 리셋 직후)마다 이 엔드포인트 하나가 개발계정 일일 쿼터(1000회)의
+       상당 부분을 잡아먹는 원인이었다. 실측 제보(위 REPORT 구간)는 이 제한과 무관하게
+       지역 상관없이 그대로 반영된다 — 서울 밖 관광지도 제보만 있으면 핫스팟에 오른다.
     """
     cutoff = _window_cutoff()
     spot_ids = (
@@ -132,27 +138,20 @@ async def get_hotspots(limit: int = 5, db: AsyncSession = Depends(get_db)):
 
     remaining = limit - len(results)
     if remaining > 0:
-        # 제보가 부족한 나머지 자리는 집중률 예측으로 채운다. 후보군은 서울+경기 · 콘텐트타입
-        # "관광지"(12)로 고정한다 — 지역을 전국으로 열거나 문화시설/쇼핑/레포츠 등 다른
-        # 타입까지 섞으면 집중률(상대 비율) 특성상 국기원·시장·박물관 같은 생뚱맞은 곳이
-        # 상단에 뜬다(실측으로 직접 확인함). 실측 제보(위 REPORT 구간)는 지역·타입 제한 없이
-        # 그대로 반영된다 — 이 제한은 예측 fallback에만 적용.
+        # 제보가 부족한 나머지 자리는 집중률 예측으로 채운다. 후보군은 서울만 · 콘텐트타입
+        # "관광지"(12)로 고정한다(위 docstring 참고 — 상대 비율 왜곡 + 쿼터 소모 두 이유).
+        # 실측 제보(위 REPORT 구간)는 지역·타입 제한 없이 그대로 반영된다 — 이 제한은
+        # 예측 fallback에만 적용.
         #
         # num_of_rows를 넉넉히 잡는 이유: TourAPI의 arrange="O"(제목순)는 가나다순 1페이지만
         # 가져오면 결과가 전부 'ㄱ'으로 시작하는 관광지에 몰린다(실측 확인 — 서울 관광지
-        # 387건, 경기 833건이라 기존 num_of_rows=30으로는 첫 페이지가 'ㄱ' 구간을 못 벗어남).
-        # 두 지역 모두 총량 이상으로 넉넉히 요청해 한 페이지로 전체를 받으면 그 안에서
-        # 집중률 desc로 다시 정렬하므로 시작 글자 편향이 없어진다.
+        # 387건이라 기존 num_of_rows=30으로는 첫 페이지가 'ㄱ' 구간을 못 벗어남). 총량
+        # 이상으로 넉넉히 요청해 한 페이지로 전체를 받으면 그 안에서 집중률 desc로 다시
+        # 정렬하므로 시작 글자 편향이 없어진다.
         attraction_type_id = tour_service.CONTENT_TYPES["관광지"]
-        seoul_spots, gyeonggi_spots = await asyncio.gather(
-            tour_service.get_all_seoul_spots(
-                num_of_rows=1000, area_code=tour_service.AREA_CODE_SEOUL, content_type_ids=[attraction_type_id]
-            ),
-            tour_service.get_all_seoul_spots(
-                num_of_rows=1000, area_code=tour_service.AREA_CODE_GYEONGGI, content_type_ids=[attraction_type_id]
-            ),
+        all_spots = await tour_service.get_all_seoul_spots(
+            num_of_rows=1000, area_code=tour_service.AREA_CODE_SEOUL, content_type_ids=[attraction_type_id]
         )
-        all_spots = seoul_spots + gyeonggi_spots
         seen_ids = set()
         candidates = []
         for s in all_spots:

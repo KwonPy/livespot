@@ -23,10 +23,21 @@ def _today_kst_ymd() -> str:
 
 def _seconds_until_kst_midnight() -> float:
     """집중률은 baseYmd(일 단위) 데이터라 자정을 넘기기 전까지는 값이 바뀌지 않는다.
-    그래서 캐시를 당일 자정까지 유지한다 — 개발계정 일일 쿼터(1000회)를 아끼는 효과가 크다."""
+    그래서 캐시를 당일 자정까지 유지한다 — 개발계정 일일 쿼터(1000회)를 아끼는 효과가 크다.
+    단, 이 TTL은 "API가 정상 응답했다"가 확인된 경우에만 쓴다 — 실패 캐싱은
+    _FAILURE_CACHE_TTL_SECONDS를 쓴다(아래 클래스 참조)."""
     now_kst = datetime.utcnow() + _KST_OFFSET
     tomorrow = datetime(now_kst.year, now_kst.month, now_kst.day) + timedelta(days=1)
     return max((tomorrow - now_kst).total_seconds(), 60.0)
+
+
+class CongestionFetchError(Exception):
+    """호출 실패(타임아웃·네트워크 오류·비정상 상태코드·응답 파싱 실패)를 나타낸다.
+
+    "그 지역에 진짜 데이터가 없다"(정상 응답, 0건)와 구분하기 위한 신호 전용 예외다.
+    이 예외가 나면 호출부는 결과를 당일 자정까지 캐싱하면 안 된다 — 쿼터 초과나 일시적
+    과부하 한 번이 그 시군구 전체를 하루 종일 "정보 없음"으로 고정시키는 사고를 막는다.
+    """
 
 
 # ──────────────────── 관광지명 매칭 ────────────────────
@@ -101,6 +112,11 @@ class CongestionService:
     # 시군구 하나의 관광지 수 × 30일. 종로구가 113곳 × 30일 = 3390행이라 넉넉히 잡는다.
     _NUM_OF_ROWS = 5000
 
+    # 호출 실패를 캐싱할 때만 쓰는 짧은 TTL. 같은 시군구를 향한 재시도가 실패 직후
+    # 폭주하지 않게 막는 최소한의 역할만 한다 — "하루 종일 실패로 고정"을 막는 게 목적이라
+    # 당일 자정 TTL(_seconds_until_kst_midnight)보다 훨씬 짧아야 한다.
+    _FAILURE_CACHE_TTL_SECONDS = 120.0
+
     def __init__(self):
         self.api_key = settings.TOUR_API_KEY
         self.base_params = {
@@ -112,6 +128,9 @@ class CongestionService:
         self._cache = TTLCache()
 
     async def _fetch(self, endpoint: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """성공하면 파싱된 JSON을 돌려준다(0건이어도 성공은 성공이다).
+        실패(타임아웃·네트워크 오류·비정상 상태코드·파싱 실패)는 `CongestionFetchError`를
+        던진다 — 호출부가 "실패"와 "정상 응답, 데이터 없음"을 구분해 캐싱하기 위함이다."""
         url = f"{self.BASE_URL}/{endpoint}"
         full_params = {**self.base_params, **params}
         session = get_session()
@@ -123,12 +142,12 @@ class CongestionService:
                         return await response.json(content_type=None)
                     except Exception as e:
                         logger.error(f"집중률 API JSON 파싱 실패: {e}")
-                        return {}
+                        raise CongestionFetchError(str(e)) from e
                 logger.error(f"집중률 API 호출 실패: {response.status}")
-                return {}
+                raise CongestionFetchError(f"status={response.status}")
         except (asyncio.TimeoutError, aiohttp.ClientError) as e:
             logger.error(f"집중률 API 호출 실패: {e}")
-            return {}
+            raise CongestionFetchError(str(e)) from e
 
     def _extract_items(self, data: Dict[str, Any]) -> List[Dict]:
         try:
@@ -165,15 +184,21 @@ class CongestionService:
         if cached is not None:
             return cached
 
-        data = await self._fetch(
-            "tatsCnctrRatedList",
-            {
-                "pageNo": 1,
-                "numOfRows": self._NUM_OF_ROWS,
-                "areaCd": area_cd,
-                "signguCd": signgu_cd,
-            },
-        )
+        try:
+            data = await self._fetch(
+                "tatsCnctrRatedList",
+                {
+                    "pageNo": 1,
+                    "numOfRows": self._NUM_OF_ROWS,
+                    "areaCd": area_cd,
+                    "signguCd": signgu_cd,
+                },
+            )
+        except CongestionFetchError:
+            # 실패는 "그 지역에 데이터가 없다"와 다르다 — 당일 자정까지 굳히면 안 된다.
+            # 짧게만 캐싱해 재시도 폭주를 막되, 다음 요청에서 다시 시도할 여지를 남긴다.
+            self._cache.set(cache_key, {}, ttl_seconds=self._FAILURE_CACHE_TTL_SECONDS)
+            return {}
 
         rates: Dict[str, float] = {}
         for item in self._extract_items(data):
@@ -187,7 +212,8 @@ class CongestionService:
             except (TypeError, ValueError):
                 continue
 
-        # 응답이 비어 있어도(그 지역에 데이터가 없는 경우) 캐싱해 반복 호출을 막는다.
+        # 여기 도달했다는 것은 API가 정상 응답했다는 뜻이다(0건이어도). 진짜 "그 지역에
+        # 오늘 집중률 데이터가 없다"이므로 당일 자정까지 캐싱해 반복 호출을 막는다.
         self._cache.set(cache_key, rates, ttl_seconds=_seconds_until_kst_midnight())
         return rates
 
@@ -274,3 +300,11 @@ class CongestionService:
                 description=description,
             )
         return result
+
+
+# 시군구별 캐시(_cache)는 인스턴스 소유다. 상세페이지(spots.py)·지도(live.py)·레거시
+# 브리핑(crowdedness.py)이 각자 `CongestionService()`를 새로 만들면 캐시가 3갈래로
+# 쪼개져서 같은 시군구를 최대 3배로 중복 호출하게 된다 — 개발계정 일일 쿼터(1000회)를
+# 실제 설계 예상보다 훨씬 빨리 소진시키는 원인이었다. 이 모듈 전역 인스턴스 하나만
+# 공유해서 쓴다.
+congestion_service = CongestionService()
