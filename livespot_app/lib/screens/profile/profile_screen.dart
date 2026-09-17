@@ -369,7 +369,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildLoggedInCard(AuthUser user) {
     return Row(
       children: [
-        _buildAvatar(user.profileImageUrl, nickname: user.nickname),
+        _buildAvatar(user.profileImageUrl),
         const SizedBox(width: 14),
         Expanded(
           child: Column(
@@ -395,17 +395,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  /// 아바타. 폴백은 **이미지 → 닉네임 이니셜 → 사람 아이콘** 순서다(P41).
+  /// 아바타. 폴백은 **이미지 → 기본 이미지** 2단계다. 닉네임 이니셜 폴백(P41)은
+  /// 2026-09-17 폐기됐다 — 기본 이미지는 사용자마다 달라지지 않는 획일적인 그림 하나다.
   ///
-  /// [imageUrl]은 이제 **항상 null이다** — 카카오 프로필 사진 동의를 받지 않기로 했다
-  /// (P34·P39). 그래도 이미지 분기를 **지우지 않는다**(P40): 앱 자체 프로필 이미지
-  /// 업로드가 붙을 때 이 자리가 그대로 쓰인다(`images.py` 라우터가 이미 있다).
-  ///
-  /// 이니셜을 넣은 이유는, 아무것도 안 하면 로그인 사용자 **전원이 똑같은 회색 사람
-  /// 아이콘**이 되어 오늘 카카오 사진이 뜨던 자리가 눈에 띄게 비어 보이기 때문이다.
-  /// 닉네임이 unique해졌으므로(P24) 첫 글자는 실제 구분 정보를 담는다.
-  Widget _buildAvatar(String? imageUrl, {String? nickname}) {
-    final fallback = _buildAvatarFallback(nickname);
+  /// [imageUrl]은 카카오 프로필 사진 동의항목(2026-09-16 재도입)이 준 값이다. 동의하지
+  /// 않았거나 카카오 계정에 사진이 없으면 서버가 null을 보내고, 그때는 아래 [_defaultAvatar]
+  /// (모든 사용자가 공유하는 획일적인 기본 이미지 파일)를 그린다 — 닉네임 이니셜처럼
+  /// 사용자마다 달라지는 값을 쓰지 않는다는 것이 정책이다.
+  static const String _defaultProfileAsset = 'assets/images/default_profile.png';
+
+  static const Widget _defaultAvatar = Image(
+    image: AssetImage(_defaultProfileAsset),
+    width: 56,
+    height: 56,
+    fit: BoxFit.cover,
+  );
+
+  Widget _buildAvatar(String? imageUrl) {
     return Container(
       width: 60,
       height: 60,
@@ -414,39 +420,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
         color: Colors.white.withOpacity(0.2),
         border: Border.all(color: Colors.white38, width: 2),
       ),
-      child: imageUrl == null
-          ? fallback
-          : ClipOval(
-              child: Image.network(
+      child: ClipOval(
+        child: imageUrl == null
+            ? _defaultAvatar
+            : Image.network(
                 imageUrl,
                 width: 56,
                 height: 56,
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => fallback,
+                errorBuilder: (_, __, ___) => _defaultAvatar,
               ),
-            ),
-    );
-  }
-
-  /// 닉네임 첫 **코드포인트**를 원 안에 그린다. 닉네임이 없으면(미설정·비로그인)
-  /// 기존 사람 아이콘 그대로다.
-  ///
-  /// `nickname[0]`이 아니라 `runes.first`인 이유: 허용 문자가 한글·영문·숫자·밑줄뿐이라
-  /// 지금은 결과가 같지만, 규칙이 풀렸을 때 `[0]`은 서로게이트 페어를 반쪽만 잘라
-  /// 깨진 글자를 그린다.
-  Widget _buildAvatarFallback(String? nickname) {
-    const personIcon = Center(child: Icon(Icons.person, color: Colors.white, size: 30));
-    if (nickname == null || nickname.isEmpty) return personIcon;
-
-    return Center(
-      child: Text(
-        String.fromCharCode(nickname.runes.first),
-        style: const TextStyle(
-          fontFamily: 'Pretendard',
-          color: Colors.white,
-          fontSize: 26,
-          fontWeight: FontWeight.bold,
-        ),
       ),
     );
   }

@@ -8,7 +8,7 @@ from datetime import datetime
 class NearbyRequest(BaseModel):
     lat: float
     lng: float
-    radius: int = 5000
+    radius: int = 1000
 
 # ──────────────────── 관광지 기본/상세 모델 ────────────────────
 
@@ -602,15 +602,28 @@ class AuthUser(BaseModel):
     `auth.py::_to_auth_user()` **한 곳뿐**이다.
     `is_new_user`(LoginResponse)와는 **다른 값이다**(P27) — 기존 사용자도 미설정일 수 있다.
 
-    `profile_image_url`은 **항상 null이 된다**(P39·P40). 카카오 동의항목을 하나도 받지
-    않기로 확정돼 채울 값이 없다. 그래도 필드를 남기는 이유는, 앱 자체 프로필 이미지
-    업로드가 붙을 때 이 자리가 그대로 쓰이기 때문이다(스키마·Dart 모델을 다시 흔들지 않는다).
+    **2026-09-17: P39·P40 폐기(P43).** 한동안 이 자리에 "`profile_image_url`은 항상
+    null이 된다 — 카카오 동의항목을 하나도 받지 않기로 확정돼 채울 값이 없다"고 적혀
+    있었으나, 카카오 개발자 콘솔의 "프로필 사진" 동의항목을 **다시 켜기로 정책이
+    뒤집혔다**. 이제 `profile_image_url`에는 **실제 URL이 들어올 수 있다.**
+    앱은 이 값이 null이 아닐 수 있다고 보고 파싱해야 한다.
+
+    다만 **여전히 null일 수 있고, 그것이 오류가 아니다** — 사용자가 선택 동의를
+    거부했거나(P47), 카카오 계정에 등록된 사진이 없을 때(`is_default_image: true`,
+    Q2-A)다. 서버는 **받은 값만 저장하고 대체 URL을 만들어 채우지 않는다**(P48).
+    null일 때 그릴 기본 이미지는 **앱이 고른다** — 모든 사용자가 동일한 획일적
+    이미지 하나이며(P49), 닉네임 이니셜처럼 사용자마다 달라지는 값이 아니다(P41 폐기).
+
+    값은 **매 로그인마다 카카오 최신 값으로 갱신된다**(P50). `nickname`이 재로그인에
+    불변인 것과 대비되는데, 이 필드는 사용자가 앱에서 정한 값이 아니라서 덮어써도
+    잃을 사용자 입력이 없기 때문이다. 그 덕에 P40 시절 NULL로 가입한 기존 사용자는
+    다음 로그인 1회로 자동 복구된다(P51 — 백필 스크립트가 필요 없다).
     """
 
     user_id: str
     nickname: Optional[str] = None            # 미설정이면 null (P25)
     nickname_required: bool                   # nickname is None (P26). 앱은 이것만 본다
-    profile_image_url: Optional[str] = None   # 앞으로 항상 null (P40)
+    profile_image_url: Optional[str] = None   # 카카오 사진 URL. 미동의/사진없음이면 null (P43)
     credit_balance: int
     trust_level: str
     created_at: datetime                      # naive UTC (가입 시각)

@@ -152,7 +152,7 @@ class _QuickReportModalState extends State<QuickReportModal> {
                     SizedBox(width: 4),
                     Expanded(
                       child: Text(
-                        '📍 제출 시 현재 위치로 GPS 인증됩니다 (반경 100m + 오차 50m, 최대 150m 이내)',
+                        '📍 제출 시 현재 위치로 GPS 인증됩니다 (반경 200m + 오차 50m, 최대 250m 이내)',
                         style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 12, fontFamily: 'Pretendard'),
                       ),
                     ),

@@ -981,7 +981,7 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
             const SizedBox(height: 8),
             Text(
               '이 장소는 좌표 정보가 없어 길찾기를 지원하지 않아요.',
-              style: LiveSpotTheme.caption.copyWith(color: Colors.grey[600]),
+              style: LiveSpotTheme.caption.copyWith(color: LiveSpotTheme.textSecondary),
             ),
           ],
         ],

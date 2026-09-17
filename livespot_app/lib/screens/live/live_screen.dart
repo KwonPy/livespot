@@ -148,7 +148,7 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
     }
   }
 
-  // GPS 연동: 현재 위치에서 실제로 100m+오차(150m) 이내로 인증되는 관광지가 있을 때만
+  // GPS 연동: 현재 위치에서 실제로 200m+오차(250m) 이내로 인증되는 관광지가 있을 때만
   // "내 현장 Q&A"를 노출한다. 여러 관광지가 주변에 있으면 임의로 아무거나 고르지 않는다.
   // 후보가 하나뿐이면 모호함이 없으니 바로 서버 인증(verify-location)으로 넘기고,
   // 여럿이면 내 최근 제보·답변 이력과 겹치는 곳이 있는지 먼저 보고, 그마저 없으면
@@ -157,7 +157,7 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
     if (!silent && mounted) setState(() => _gpsMatchStatus = _GpsMatchStatus.loading);
     try {
       final position = await _locationService.getCurrentPosition();
-      final nearby = await _apiService.fetchNearbySpots(position.latitude, position.longitude, radius: 500);
+      final nearby = await _apiService.fetchNearbySpots(position.latitude, position.longitude, radius: 1000);
       if (nearby.isEmpty) {
         if (mounted) {
           setState(() {
@@ -525,7 +525,7 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
               const SizedBox(width: AppSpacing.md),
               const Expanded(
                 child: Text(
-                  '인증된 관광지가 없어요.\n관광지 반경 150m 이내로 이동한 뒤 다시 시도해보세요.',
+                  '인증된 관광지가 없어요.\n관광지 반경 250m 이내로 이동한 뒤 다시 시도해보세요.',
                   style: LiveSpotTheme.body,
                 ),
               ),

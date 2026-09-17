@@ -65,11 +65,10 @@ class User(Base):
     #  쓰면 이름 없는 제약이 만들어져 SQLite에서 떼어낼 수 없다.)
     nickname: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
-    # **앞으로 항상 NULL이다**(P39·P40). 카카오 동의항목(profile_image)을 받지 않기로
-    # 확정돼 채울 값이 없다. 그런데도 컬럼을 남기는 이유: 앱 자체 프로필 이미지 업로드가
-    # 붙을 때 이 자리가 그대로 쓰인다(images.py 라우터가 이미 있다). 지우면 마이그레이션 +
-    # 응답 스키마 + Dart 모델 + 아바타 위젯이 **함께** 바뀌는데, 얻는 것은 빈 컬럼 하나가
-    # 사라지는 것뿐이다.
+    # 카카오 프로필 사진 동의항목(2026-09-16 재도입)이 준 URL을 그대로 저장한다. 동의하지
+    # 않았거나 카카오 계정에 사진이 없으면 NULL — 그 경우 앱이 획일적인 기본 이미지를
+    # 그린다(서버는 가짜 URL을 만들어 채우지 않는다, api/auth.py 참고). 한때(P39·P40,
+    # 2026-09-14) 이 컬럼을 영구히 NULL로 두기로 했었으나 그 정책은 뒤집혔다.
     profile_image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     credit_balance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

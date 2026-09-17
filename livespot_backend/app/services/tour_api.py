@@ -218,7 +218,7 @@ class TourAPIService:
     # ──────────────────── 위치기반 관광정보 조회 ────────────────────
 
     async def get_nearby_spots(
-        self, lat: float, lng: float, radius: int = 5000, num_of_rows: int = 20
+        self, lat: float, lng: float, radius: int = 1000, num_of_rows: int = 20
     ) -> List[Dict]:
         """locationBasedList2 - 위치 기반 주변 관광지 조회 (거리순 정렬)"""
         # 소수점 3자리(~100m)로 반올림해 근처 재조회를 캐시로 흡수

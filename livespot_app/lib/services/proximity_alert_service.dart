@@ -10,7 +10,7 @@ import 'location_service.dart';
 ///
 /// 백그라운드 GPS 추적이나 OS Geofencing은 쓰지 않는다. 앱이 실행 중이고 사용자가
 /// 위치 권한을 허용한 상태에서만, 주기적으로 "현재 위치 → 주변 관광지 → 알림 ON인
-/// 관광지 → 50m 이내 진입 여부"를 확인한다.
+/// 관광지 → 150m 이내 진입 여부"를 확인한다.
 class ProximityAlertService {
   static const _cooldownKeyPrefix = 'proximity_alert_last_';
 

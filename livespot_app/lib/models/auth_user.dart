@@ -14,8 +14,9 @@ class AuthUser {
 
   /// 사용자가 앱에서 직접 정한 닉네임(P23). **미설정이면 null이다**(P25).
   ///
-  /// 카카오에서 받아오지 않는다 — 이제 카카오가 주는 값은 회원번호 하나뿐이다.
-  /// null 여부를 직접 해석하지 말고 [nicknameRequired]를 볼 것(P26).
+  /// 카카오에서 받아오지 않는다 — 카카오가 주는 값 중 닉네임은 여전히 요청하지 않는다
+  /// (2026-09-17 프로필 사진만 재도입, P43). null 여부를 직접 해석하지 말고
+  /// [nicknameRequired]를 볼 것(P26).
   final String? nickname;
 
   /// **닉네임을 아직 정하지 않았는가**(P26). 서버가 `nickname == null`로 계산해 내려준다.
@@ -25,8 +26,10 @@ class AuthUser {
   /// (마이그레이션이 기존 카카오 사용자의 닉네임을 NULL로 밀었다).
   final bool nicknameRequired;
 
-  /// **앞으로 항상 null이다.** 카카오 프로필 사진 동의를 받지 않기로 했다(P34·P39).
-  /// 필드와 분기는 남긴다(P40) — 앱 자체 프로필 이미지 업로드가 이 자리를 그대로 쓴다.
+  /// 카카오 프로필 사진 URL(2026-09-17 동의항목 재도입, P43). 한때(P34·P39, 2026-09-14)
+  /// 항상 null이던 시절이 있었으나 그 정책은 뒤집혔다. 동의 거부·미등록 사진이면 여전히
+  /// null이고, 그때는 앱이 획일적인 기본 이미지(`assets/images/default_profile.png`)를
+  /// 그린다.
   final String? profileImageUrl;
 
   final int creditBalance;

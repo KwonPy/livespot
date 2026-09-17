@@ -229,7 +229,7 @@ async def create_answer(
     user_id: str = Depends(get_current_user_id),
 ):
     """답변 등록. GPS 현장 인증(기능 3)이 되어야만 가능 — 제보와 동일한 판정 기준
-    (반경 100m + 오차 50m)을 재사용해, 매번 서버가 거리를 다시 계산한다(정책).
+    (반경 200m + 오차 50m)을 재사용해, 매번 서버가 거리를 다시 계산한다(정책).
     관광지 상세페이지·Live 페이지 양쪽에서 동일하게 이 엔드포인트를 호출한다."""
     user = await db.get(User, user_id)
     if user is None:

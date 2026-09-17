@@ -25,14 +25,16 @@ class AppConstants {
   static bool get hasKakaoJsKey => kakaoJsKey.isNotEmpty;
 
   // 자동 제보 유도 알림 (앱이 foreground일 때만 동작 — 백그라운드/OS Geofencing 없음)
-  static const double proximityAlertRadiusM = 50; // 관광지 반경 50m 이내 진입 시 알림
+  // 2026-09-17: 기존 50m가 타이트하다는 사용자 판단으로 150m로 확대.
+  static const double proximityAlertRadiusM = 150; // 관광지 반경 150m 이내 진입 시 알림
   static const Duration proximityAlertCooldown = Duration(hours: 2); // 같은 관광지 재알림 최소 간격
   // foreground 위치 재확인 주기. 2026-09-12 60초 → 15초로 단축(체감 지연 개선 요청).
   // 안전한 이유: /spots/nearby가 위경도를 소수점 3자리(~100m)로 반올림한 키로 120초 TTL
   // 캐시를 쓰므로(tour_api.py::get_nearby_spots), 같은 자리에 머무는 동안 주기를 줄여도
   // TourAPI 실제 호출 횟수는 늘지 않는다 — 늘어나는 건 브라우저 GPS 조회 빈도뿐이다.
-  // 도보 속도(~1.4m/s)로 50m 반경을 통과하는 데 걸리는 시간을 감안하면 이 이하로는
-  // 체감 개선이 급격히 줄어든다.
+  // 도보 속도(~1.4m/s)로 반경을 통과하는 데 걸리는 시간을 감안하면 이 이하로는 체감
+  // 개선이 급격히 줄어든다. 2026-09-17 반경이 50m→150m로 늘어 여유는 더 커졌을 뿐,
+  // 15초 주기를 굳이 줄일 필요는 없다.
   static const Duration proximityCheckInterval = Duration(seconds: 15);
   static const int proximityNearbySearchRadiusM = 3000; // 주변 관광지 조회 반경
 

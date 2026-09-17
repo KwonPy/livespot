@@ -251,7 +251,11 @@ class ApiService {
 
   /// 주변 관광지를 조회합니다. 서버에 연결할 수 없거나 요청이 실패하면
   /// (결과가 0개인 경우와 구분할 수 있도록) 예외를 던집니다.
-  Future<List<Spot>> fetchNearbySpots(double lat, double lng, {int radius = 5000}) async {
+  ///
+  /// 기본 반경은 1km(2026-09-17 사용자 확정) — 대표좌표 1점 기준 거리 필터라 면적이 넓은
+  /// 스팟(예: 망원한강공원)은 사용자 위치에 따라 이 반경 밖으로 빠질 수 있다. 이건 알려진
+  /// 한계이고, 반경을 더 넓히는 것으로 해결하지 않기로 확정됐다.
+  Future<List<Spot>> fetchNearbySpots(double lat, double lng, {int radius = 1000}) async {
     final response = await _dio.post('/spots/nearby', data: {
       'lat': lat,
       'lng': lng,

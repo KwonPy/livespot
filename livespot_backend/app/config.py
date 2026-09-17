@@ -54,8 +54,9 @@ class Settings(BaseSettings):
             return "postgresql+asyncpg://" + v[len("postgresql://"):]
         return v
 
-    # GPS 인증 (기능 3): 100m + 측정오차(최대 50m까지 인정) → 실제 판정 반경은 두 값의 합(150m)
-    GPS_VERIFICATION_RADIUS_M: int = 100
+    # GPS 인증 (기능 3): 200m + 측정오차(최대 50m까지 인정) → 실제 판정 반경은 두 값의 합(250m)
+    # 2026-09-17: 기존 100m+50m(150m)가 타이트하다는 사용자 판단으로 200m+50m(250m)로 확대.
+    GPS_VERIFICATION_RADIUS_M: int = 200
     GPS_ERROR_MARGIN_M: int = 50
 
     # LIVE 상태창(기능 5): "지금 붐빈다"를 판정하는 기준 시간창. 이 시간 안에 제보가 없으면

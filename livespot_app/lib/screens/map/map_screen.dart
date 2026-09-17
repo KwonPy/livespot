@@ -131,7 +131,7 @@ class _MapScreenState extends State<MapScreen> {
 
     // 서버에서 주변 관광지 로드
     try {
-      final spots = await _apiService.fetchNearbySpots(_userLat, _userLng);
+      final spots = await _apiService.fetchNearbySpots(_userLat, _userLng, radius: 5000);
       if (mounted) {
         setState(() {
           _spots = spots;
@@ -215,7 +215,7 @@ class _MapScreenState extends State<MapScreen> {
     }
 
     try {
-      final spots = await _apiService.fetchNearbySpots(newLat, newLng);
+      final spots = await _apiService.fetchNearbySpots(newLat, newLng, radius: 5000);
       if (mounted) {
         setState(() {
           _spots = spots;

@@ -121,7 +121,7 @@ class _QaSectionState extends State<QaSection> {
         children: [
           Row(
             children: [
-              Text('❓ 현장 Q&A', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey[800])),
+              Text('❓ 현장 Q&A', style: LiveSpotTheme.title.copyWith(color: Colors.grey[800])),
               const Spacer(),
               if (widget.showAskButton)
                 TextButton(
@@ -153,7 +153,7 @@ class _QaSectionState extends State<QaSection> {
                       Expanded(
                         child: Text(
                           '질문을 불러오지 못했어요: ${snapshot.error.toString().replaceFirst('Exception: ', '')}',
-                          style: const TextStyle(fontFamily: 'Pretendard', fontSize: 13),
+                          style: LiveSpotTheme.caption,
                         ),
                       ),
                     ],
@@ -169,7 +169,7 @@ class _QaSectionState extends State<QaSection> {
                     child: Text(
                       '오늘 등록된 질문이 없어요.\n첫 번째로 현장에 물어보세요!',
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.grey[400]),
+                      style: LiveSpotTheme.body.copyWith(color: LiveSpotTheme.textSecondary),
                     ),
                   ),
                 );
@@ -201,7 +201,7 @@ class _QaSectionState extends State<QaSection> {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(child: Text('Q. ${q.content}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600))),
+                    Expanded(child: Text('Q. ${q.content}', style: LiveSpotTheme.body.copyWith(fontWeight: FontWeight.w600))),
                     if (q.isExpired) ...[
                       const SizedBox(width: 6),
                       Container(
@@ -213,16 +213,16 @@ class _QaSectionState extends State<QaSection> {
                   ],
                 ),
                 const SizedBox(height: 2),
-                Text(q.userNickname, style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                Text(q.userNickname, style: LiveSpotTheme.caption.copyWith(fontWeight: FontWeight.w600, color: LiveSpotTheme.textSecondary)),
                 const SizedBox(height: 8),
                 Row(
                   children: [
                     Text(
                       q.answerCount > 0 ? '답변 ${q.answerCount}개' : '답변 대기',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: q.answerCount > 0 ? LiveSpotTheme.successColor : LiveSpotTheme.warningColor),
+                      style: LiveSpotTheme.caption.copyWith(fontWeight: FontWeight.bold, color: q.answerCount > 0 ? LiveSpotTheme.successColor : LiveSpotTheme.warningColor),
                     ),
                     const Spacer(),
-                    Text(Formatters.timeAgo(q.createdAt), style: TextStyle(fontSize: 10, color: Colors.grey[400])),
+                    Text(Formatters.timeAgo(q.createdAt), style: LiveSpotTheme.label.copyWith(color: LiveSpotTheme.textSecondary)),
                     const SizedBox(width: 4),
                     Icon(expanded ? Icons.expand_less : Icons.expand_more, size: 18, color: Colors.grey[400]),
                   ],
@@ -261,7 +261,7 @@ class _QaSectionState extends State<QaSection> {
         width: double.infinity,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10)),
-        child: Text('아직 답변이 없어요.', style: TextStyle(color: Colors.grey[400], fontFamily: 'Pretendard', fontSize: 13)),
+        child: Text('아직 답변이 없어요.', style: LiveSpotTheme.body.copyWith(color: LiveSpotTheme.textSecondary)),
       );
     }
     return Column(
@@ -278,13 +278,13 @@ class _QaSectionState extends State<QaSection> {
                       children: [
                         const Icon(Icons.check_circle, size: 14, color: Colors.green),
                         const SizedBox(width: 6),
-                        Text(a.userNickname, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Pretendard')),
+                        Text(a.userNickname, style: LiveSpotTheme.caption.copyWith(fontWeight: FontWeight.bold)),
                         const Spacer(),
-                        Text(Formatters.timeAgo(a.createdAt), style: TextStyle(fontSize: 10, color: Colors.grey[400])),
+                        Text(Formatters.timeAgo(a.createdAt), style: LiveSpotTheme.label.copyWith(color: LiveSpotTheme.textSecondary)),
                       ],
                     ),
                     const SizedBox(height: 6),
-                    Text(a.content, style: const TextStyle(fontSize: 13, fontFamily: 'Pretendard')),
+                    Text(a.content, style: LiveSpotTheme.body),
                   ],
                 ),
               ))
