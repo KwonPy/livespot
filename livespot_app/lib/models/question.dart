@@ -12,6 +12,10 @@ class Answer {
   final String userId;
   final String userNickname;
   final String content;
+  // 답변 등록은 GPS 현장 인증(반경 200m+오차 50m)이 통과해야만 가능하다 — 원칙적으로
+  // 항상 true지만, DEMO_BYPASS_GPS로 저장만 허용된 원격 답변은 false로 올 수 있다.
+  // 화면에서 현장인증 뱃지를 붙일지 여기 값으로 판정한다(2026-09-17).
+  final bool gpsVerified;
   final DateTime createdAt;
 
   /// **이번 요청으로 새로** 적립된 크레딧. `POST /api/questions/{id}/answers` 응답에서만
@@ -29,6 +33,7 @@ class Answer {
     required this.userId,
     required this.userNickname,
     required this.content,
+    required this.gpsVerified,
     required this.createdAt,
     this.creditEarned = 0,
     this.creditSkipReason,
@@ -41,6 +46,7 @@ class Answer {
       userId: json['user_id'] as String,
       userNickname: json['user_nickname'] as String,
       content: json['content'] as String,
+      gpsVerified: json['gps_verified'] as bool,
       createdAt: _parseUtc(json['created_at'] as String),
       // 서버는 두 키를 항상 내려보내지만(기본값 0/null) 키 부재에 안전하게 읽는다 —
       // 같은 모델을 목록 응답의 answers[]에서도 재사용하기 때문이다(01_spec 5절).

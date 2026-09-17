@@ -157,7 +157,13 @@ class _BacklogSummaryDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    // barrierDismissible: false는 바깥 탭만 막는다 — 브라우저 뒤로가기·Esc 키는 Navigator가
+    // 기본으로 라우트를 pop시키므로 그대로 두면 이 다이얼로그도 닫힌다(사용자가 아무 버튼도
+    // 안 눌렀는데 "알림이 그냥 사라진다"고 보고된 원인). canPop: false로 시스템 pop 자체를
+    // 막아 "나중에"/"확인하러 가기" 버튼으로만 닫히게 한다.
+    return PopScope(
+      canPop: false,
+      child: AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: const Row(
         children: [
@@ -191,6 +197,7 @@ class _BacklogSummaryDialog extends StatelessWidget {
           child: const Text('확인하러 가기', style: TextStyle(color: Colors.white, fontFamily: 'Pretendard')),
         ),
       ],
+      ),
     );
   }
 }
@@ -202,7 +209,12 @@ class _NotificationDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    // _BacklogSummaryDialog와 같은 이유(barrierDismissible은 바깥 탭만 막고 시스템
+    // pop은 안 막는다) — canPop: false로 브라우저 뒤로가기·Esc가 이 모달을 조용히
+    // 닫아버리지 못하게 한다.
+    return PopScope(
+      canPop: false,
+      child: AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       // 2026-09-13(015 정정): `NEW_QUESTION` 분기를 **되살렸다.**
       //
@@ -260,6 +272,7 @@ class _NotificationDialog extends StatelessWidget {
           child: const Text('확인하기', style: TextStyle(color: Colors.white, fontFamily: 'Pretendard')),
         ),
       ],
+      ),
     );
   }
 }

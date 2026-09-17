@@ -172,6 +172,7 @@ async def get_my_questions(
                 user_id=a.user_id,
                 user_nickname=display_nickname(nickname),
                 content=a.content,
+                gps_verified=a.gps_verified,
                 created_at=a.created_at,
             )
             for a, nickname in answers_result.all()
@@ -276,13 +277,15 @@ async def create_answer(
     # 알림(기능 8)도 같은 이유로 db.add(answer) 앞에서 판정한다. 수신자는 질문자 1명이고,
     # question_id를 이미 알고 있어 여기서 바로 행까지 만들 수 있다(질문 등록 경로와 달리
     # flush를 기다릴 필요가 없다).
+    # 발췌는 답변(payload.content)이 아니라 원 질문(question.content)에서 뽑는다 —
+    # 알림 문구에 답변 내용이 그대로 노출되지 않게 하기 위해서다(사용자 지시).
     alert_rows = (
         await notification_service.prepare_new_answer(
             db,
             spot_content_id=question.spot_content_id,
             question_owner_id=question.user_id,
             actor_user_id=user_id,
-            answer_content=payload.content,
+            question_content=question.content,
         )
     ).build(question_id=question_id)
 
@@ -312,6 +315,7 @@ async def create_answer(
         user_id=answer.user_id,
         user_nickname=display_nickname(user.nickname),
         content=answer.content,
+        gps_verified=answer.gps_verified,
         created_at=answer.created_at,
         credit_earned=award.earned,
         credit_skip_reason=award.skip_reason,

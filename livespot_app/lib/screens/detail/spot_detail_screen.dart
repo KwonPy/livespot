@@ -16,13 +16,13 @@ import '../../services/api_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/location_service.dart';
 import '../../utils/formatters.dart';
-import '../../widgets/gps_verified_badge.dart';
 import '../../widgets/login_required_sheet.dart';
 import '../../widgets/quick_report_modal.dart';
 import '../../widgets/crowdedness_badge.dart';
 import '../../widgets/weather_badge.dart';
 import '../../widgets/qa_section.dart';
 import '../../widgets/pending_questions_banner.dart';
+import '../../widgets/author_header.dart';
 
 class SpotDetailScreen extends ConsumerStatefulWidget {
   final Spot spot;
@@ -688,7 +688,7 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
               Text('📊 방문 집중률 예측', style: LiveSpotTheme.caption.copyWith(fontWeight: FontWeight.w600, color: LiveSpotTheme.textSecondary)),
               const Spacer(),
               Text(
-                _congestionLoading ? '불러오는 중...' : '한국관광공사 예측',
+                _congestionLoading ? '불러오는 중...' : '예측 데이터',
                 style: LiveSpotTheme.label.copyWith(color: LiveSpotTheme.textSecondary),
               ),
             ],
@@ -1055,18 +1055,10 @@ class _SpotDetailScreenState extends ConsumerState<SpotDetailScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          // 10px 유지: 24px 아바타 원 안에 들어가는 이니셜 한 글자라 label(11)보다
-                          // 작아야 한다 — 의도된 스케일 밖 예외(다른 작은 배지들과 같은 이유).
-                          CircleAvatar(radius: 12, backgroundColor: LiveSpotTheme.primaryColor.withOpacity(0.2), child: Text(r.userNickname.substring(0, 1), style: const TextStyle(fontSize: 10, color: LiveSpotTheme.primaryColor, fontWeight: FontWeight.bold))),
-                          const SizedBox(width: 6),
-                          Text(r.userNickname, style: LiveSpotTheme.caption.copyWith(fontWeight: FontWeight.w600)),
-                          const SizedBox(width: 4),
-                          if (r.gpsVerified) const GpsVerifiedBadge(),
-                          const Spacer(),
-                          Text(Formatters.reportRecency(r.createdAt), style: LiveSpotTheme.label.copyWith(color: LiveSpotTheme.textSecondary)),
-                        ],
+                      AuthorHeader(
+                        nickname: r.userNickname,
+                        gpsVerified: r.gpsVerified,
+                        timeLabel: Formatters.reportRecency(r.createdAt),
                       ),
                       const SizedBox(height: 6),
                       Wrap(

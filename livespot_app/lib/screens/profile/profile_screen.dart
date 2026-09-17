@@ -9,6 +9,7 @@ import '../../services/auth_service.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/credit_badge.dart';
 import '../../widgets/login_required_sheet.dart';
+import 'app_info_screen.dart';
 import 'bookmarks_screen.dart';
 import 'credit_ledger_screen.dart';
 import 'my_qna_screen.dart';
@@ -724,8 +725,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       },
       {'icon': Icons.stars_rounded, 'title': 'Credit 내역', 'subtitle': '포인트 획득/사용 이력', 'onTap': _openCreditLedger},
       {'icon': Icons.bookmark_outline, 'title': '북마크', 'subtitle': '저장한 관광지', 'onTap': _openBookmarks},
-      {'icon': Icons.help_outline, 'title': '고객센터', 'subtitle': '문의 및 도움말'},
-      {'icon': Icons.info_outline, 'title': '앱 정보', 'subtitle': 'LiveSpot v1.0.0'},
+      // 2026-09-17 사용자 지침: "고객센터" 메뉴 삭제, "앱 정보"는 서비스 소개·데이터
+      // 출처·약관류·버전 정보를 모은 카테고리 목록 화면으로 연결한다.
+      {'icon': Icons.info_outline, 'title': '앱 정보', 'subtitle': '서비스 소개·약관·버전 정보', 'onTap': _openAppInfo},
       // 로그아웃은 **신규 항목**이다(01_spec 쟁점 D). function.md:24가 "계정(로그아웃)은
       // 죽은 메뉴"라고 쓴 것과 달리 메뉴 자체가 없었다 — 014에서 죽은 메뉴들을 정리할 때
       // 함께 사라졌다. 비로그인 상태에서는 아예 그리지 않는다(누를 대상이 없다).
@@ -850,5 +852,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
     // 내역 화면에서 당겨서 새로고침했을 수 있으므로 돌아오면 스탯도 맞춘다.
     if (mounted) _reloadStats();
+  }
+
+  // 서비스 소개·약관류·버전 정보는 개인 데이터가 아니라 비로그인도 볼 수 있어야
+  // 한다 — 다른 메뉴들과 달리 ensureLoggedIn 게이트를 두지 않는다.
+  Future<void> _openAppInfo() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const AppInfoScreen()),
+    );
   }
 }

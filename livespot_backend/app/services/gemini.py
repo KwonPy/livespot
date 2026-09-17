@@ -175,7 +175,7 @@ def build_prompt(m: BriefingMaterials) -> str:
         # 집중률 원점수(congestion_rate)는 일부러 넣지 않는다. 단위가 %가 아니라 내부 지표라
         # 모델이 "집중률 78"처럼 그대로 옮겨 적으면 사용자에게 의미 없는 숫자가 된다(실측).
         lines.append(
-            f"[방문 집중률 예측 — 한국관광공사 예측값, 실제 현장 상황이 아님] "
+            f"[방문 집중률 예측 — 과거 방문 패턴 기반 예측값, 실제 현장 상황이 아님] "
             f"'{basis}' 기준 {level_text}"
         )
 
@@ -283,7 +283,7 @@ def render_template(m: BriefingMaterials) -> str:
     if m.has_congestion:
         level_text = _CONGESTION_TEXT.get(m.congestion.level, "보통")
         basis = m.congestion.spot_name or m.title
-        parts.append(f"한국관광공사의 오늘 방문 집중률 예측은 '{basis}' 기준 {level_text} 수준입니다.")
+        parts.append(f"오늘 방문 집중률 예측은 '{basis}' 기준 {level_text} 수준입니다.")
 
     if m.has_weather:
         parts.append(f"현재 날씨는 {m.weather.description}, 기온은 {m.weather.temp:.0f}도입니다.")

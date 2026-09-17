@@ -400,6 +400,9 @@ class AnswerResponse(BaseModel):
     user_id: str
     user_nickname: str  # users.nickname 조인 결과
     content: str
+    # DB 컬럼은 답변 등록 시부터 이미 있었다(create_answer가 매번 채운다) — 이 필드는 그
+    # 값을 응답에 처음 노출하는 것뿐이다(화면에 현장인증 뱃지를 그리기 위함, 2026-09-17).
+    gps_verified: bool
     created_at: datetime
     # ── 이번 요청으로 적립된 크레딧 (POST /questions/{id}/answers에서만 의미가 있다) ──
     # ReportResponse와 같은 이유로 기본값을 둔다. 이 스키마는 questions.py:169(내 Q&A),

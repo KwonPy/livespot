@@ -268,7 +268,7 @@ class _MapScreenState extends State<MapScreen> {
               const Text('지도 마커 색상 안내', style: LiveSpotTheme.title),
               const SizedBox(height: 4),
               Text(
-                '한국관광공사 방문 집중률 "예측" 기준입니다. 과거 방문 패턴으로 예측한 값이라\n'
+                '방문 집중률 "예측" 기준입니다. 과거 방문 패턴으로 예측한 값이라\n'
                 '실시간 현장 상황과 다를 수 있어요. 실제 현장 제보는 관광지 상세페이지에서 확인하세요.',
                 style: LiveSpotTheme.caption.copyWith(color: LiveSpotTheme.textSecondary, height: 1.4),
               ),

@@ -5,6 +5,7 @@ import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../utils/formatters.dart';
 import 'ask_question_modal.dart';
+import 'author_header.dart';
 import 'login_required_sheet.dart';
 import 'onsite_answer_modal.dart';
 
@@ -23,6 +24,14 @@ class QaSection extends StatefulWidget {
   // Live 페이지 "내 현장 Q&A"는 활성 질문만 보여준다(정책). 상세페이지는 기본값(false)으로
   // 만료된 질문도 "만료" 배지와 함께 계속 보여준다.
   final bool activeOnly;
+  // 이 위젯이 지금 화면에 보이는지 (global_qa_list.dart와 같은 isActive 규약).
+  // Live 페이지 "내 현장 Q&A"는 GPS 인증 후에는 질문을 이 위젯 안에서 등록할 방법이
+  // 없다(showAskButton=false, 질문은 상세페이지 전용) — 그래서 _reload()를 트리거하는
+  // 내부 경로(_openAskModal/_openAnswerModal)가 하나도 없다. 상세페이지에서 질문을 새로
+  // 등록하고 LIVE 탭으로 돌아와도(다른 탭으로 나갔다 오거나, 같은 탭 안에서 push/pop),
+  // 이 값을 안 넘기면 IndexedStack이 State를 살려둬 initState 때 만든 예전 Future가
+  // 그대로 남는다(전체 LIVE Q&A는 뜨는데 "내 현장 Q&A"만 안 뜨는 버그의 원인).
+  final bool isActive;
 
   const QaSection({
     super.key,
@@ -30,6 +39,7 @@ class QaSection extends StatefulWidget {
     required this.spotName,
     this.showAskButton = true,
     this.activeOnly = false,
+    this.isActive = true,
   });
 
   @override
@@ -49,6 +59,17 @@ class _QaSectionState extends State<QaSection> {
   void initState() {
     super.initState();
     _reload();
+  }
+
+  @override
+  void didUpdateWidget(covariant QaSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // global_qa_list.dart와 같은 규약: 탭이 다시 보이게 된 시점에 재조회한다. spotContentId가
+    // 바뀐 경우(GPS 재인증으로 다른 관광지에 매칭)도 같이 잡는다 — 둘 다 예전 Future를
+    // 그대로 두면 안 되는 경우다.
+    if ((widget.isActive && !oldWidget.isActive) || widget.spotContentId != oldWidget.spotContentId) {
+      _reload();
+    }
   }
 
   void _reload() {
@@ -198,6 +219,10 @@ class _QaSectionState extends State<QaSection> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // 질문자에게는 현장인증 뱃지를 붙이지 않는다 — 질문 등록은 위치 제한이
+                // 없어(정책) 애초에 인증 개념이 없다.
+                AuthorHeader(nickname: q.userNickname, timeLabel: Formatters.timeAgo(q.createdAt)),
+                const SizedBox(height: 8),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -212,8 +237,6 @@ class _QaSectionState extends State<QaSection> {
                     ],
                   ],
                 ),
-                const SizedBox(height: 2),
-                Text(q.userNickname, style: LiveSpotTheme.caption.copyWith(fontWeight: FontWeight.w600, color: LiveSpotTheme.textSecondary)),
                 const SizedBox(height: 8),
                 Row(
                   children: [
@@ -222,8 +245,6 @@ class _QaSectionState extends State<QaSection> {
                       style: LiveSpotTheme.caption.copyWith(fontWeight: FontWeight.bold, color: q.answerCount > 0 ? LiveSpotTheme.successColor : LiveSpotTheme.warningColor),
                     ),
                     const Spacer(),
-                    Text(Formatters.timeAgo(q.createdAt), style: LiveSpotTheme.label.copyWith(color: LiveSpotTheme.textSecondary)),
-                    const SizedBox(width: 4),
                     Icon(expanded ? Icons.expand_less : Icons.expand_more, size: 18, color: Colors.grey[400]),
                   ],
                 ),
@@ -274,14 +295,10 @@ class _QaSectionState extends State<QaSection> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.check_circle, size: 14, color: Colors.green),
-                        const SizedBox(width: 6),
-                        Text(a.userNickname, style: LiveSpotTheme.caption.copyWith(fontWeight: FontWeight.bold)),
-                        const Spacer(),
-                        Text(Formatters.timeAgo(a.createdAt), style: LiveSpotTheme.label.copyWith(color: LiveSpotTheme.textSecondary)),
-                      ],
+                    AuthorHeader(
+                      nickname: a.userNickname,
+                      gpsVerified: a.gpsVerified,
+                      timeLabel: Formatters.timeAgo(a.createdAt),
                     ),
                     const SizedBox(height: 6),
                     Text(a.content, style: LiveSpotTheme.body),

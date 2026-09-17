@@ -451,7 +451,17 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
             //
             // 기능 8의 알림 다이얼로그는 이 화면 안에 있지 않다 — `app.dart`의
             // MaterialApp.builder가 Navigator 위에 모달로 띄운다.
-            QaSection(spotContentId: spot.contentId, spotName: spot.title, showAskButton: false, activeOnly: true),
+            QaSection(
+              // HOT SPOTS → 상세페이지(질문 등록) → 뒤로가기는 같은 탭 안의 push/pop이라
+              // isActive가 안 바뀐다 — GlobalQaList와 똑같이 _qaListKey를 키로 써서
+              // 그 왕복 뒤에도 State가 새로 만들어지게(=재조회) 한다.
+              key: ValueKey('myqa_$_qaListKey'),
+              spotContentId: spot.contentId,
+              spotName: spot.title,
+              showAskButton: false,
+              activeOnly: true,
+              isActive: widget.isActive,
+            ),
           ],
         );
       case _GpsMatchStatus.loading:

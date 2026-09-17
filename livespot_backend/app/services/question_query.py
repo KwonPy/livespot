@@ -57,6 +57,7 @@ async def build_question_response(
             user_id=a.user_id,
             user_nickname=display_nickname(nickname),
             content=a.content,
+            gps_verified=a.gps_verified,
             created_at=a.created_at,
         )
         for a, nickname in result.all()

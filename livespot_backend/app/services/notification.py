@@ -73,7 +73,9 @@ _BODY_PREFIX = {
 # 발췌를 붙이지 않는 종류. NEW_QUESTION은 사용자가 준 예시 문구를 그대로 쓴다(P28) —
 # 수신자는 그 질문을 올린 사람이 아니라 "지금 그 관광지에 있는 사람들"이라, 질문 본문
 # 일부를 보여줘도 어느 것인지 구분할 필요가 없다. 반대로 NEW_ANSWER는 질문자가 자기 질문
-# 여러 개 중 어느 것에 답변이 달렸는지를 발췌로 구분한다.
+# 여러 개 중 어느 것에 답변이 달렸는지를 발췌로 구분한다 — 단, 발췌의 출처는 **답변이
+# 아니라 원 질문 본문**이다(사용자 지시, 2026-09-17). 답변 작성자가 무엇을 썼는지는
+# 목록·상세를 직접 열어야 보이게 하고, 알림 문구만으로는 답변 내용이 새지 않게 한다.
 _NO_EXCERPT_TYPES = {TYPE_NEW_QUESTION}
 _EXCERPT_MAX = 40
 
@@ -268,7 +270,7 @@ async def prepare_new_answer(
     spot_content_id: str,
     question_owner_id: str,
     actor_user_id: str,
-    answer_content: str,
+    question_content: str,
 ) -> PendingNotifications:
     """답변 등록 시 — 질문자 1명에게 보낼 알림을 준비한다.
 
@@ -278,11 +280,16 @@ async def prepare_new_answer(
     사용자가 직접 올린 질문에 대한 응답이라 억제할 이유가 없다는 것이 새 정책의 판단이다.
     본인 제외(P7)는 이미 `create_answer`가 "본인 질문에는 답변 불가"로 막고 있어 걸릴 일이
     없지만, 규칙을 이 모듈 한 곳에서 강제하려고 동일하게 통과시킨다.
+
+    발췌 인자는 `question_content`다(호출부가 `payload.content`가 아니라
+    `question.content`를 넘긴다) — 답변 본문을 알림에 노출하지 않기 위해서다(사용자 지시,
+    2026-09-17). 질문자는 "내 질문 — 발췌"만 보고 어느 질문에 답이 달렸는지 알 수 있고,
+    실제 답변 내용은 목록/상세를 열어야 보인다.
     """
     pending = PendingNotifications(
         notification_type=TYPE_NEW_ANSWER,
         spot_content_id=spot_content_id,
-        body=compose_body(TYPE_NEW_ANSWER, answer_content),
+        body=compose_body(TYPE_NEW_ANSWER, question_content),
     )
     try:
         pending.recipient_ids = await select_recipients(

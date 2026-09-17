@@ -3,6 +3,7 @@ import '../config/theme.dart';
 import '../models/question.dart';
 import '../services/api_service.dart';
 import '../utils/formatters.dart';
+import 'author_header.dart';
 
 class _GlobalQaItem {
   final Question question;
@@ -122,19 +123,14 @@ class _GlobalQaListState extends State<GlobalQaList> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Flexible(
-                    child: Text(
-                      '[${item.spotTitle}]',
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1E88E5), fontFamily: 'Pretendard'),
-                    ),
-                  ),
-                  const Spacer(),
-                  Text(Formatters.timeAgo(q.createdAt), style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                ],
+              Text(
+                '[${item.spotTitle}]',
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1E88E5), fontFamily: 'Pretendard'),
               ),
+              const SizedBox(height: 6),
+              // 질문자에게는 현장인증 뱃지를 붙이지 않는다(qa_section.dart와 같은 정책 이유).
+              AuthorHeader(nickname: q.userNickname, timeLabel: Formatters.timeAgo(q.createdAt)),
               const SizedBox(height: 6),
               Text('Q. ${q.content}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, fontFamily: 'Pretendard')),
               const SizedBox(height: 6),
@@ -180,14 +176,10 @@ class _GlobalQaListState extends State<GlobalQaList> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.check_circle, size: 14, color: Colors.green),
-                        const SizedBox(width: 6),
-                        Text(a.userNickname, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Pretendard')),
-                        const Spacer(),
-                        Text(Formatters.timeAgo(a.createdAt), style: TextStyle(fontSize: 10, color: Colors.grey[400])),
-                      ],
+                    AuthorHeader(
+                      nickname: a.userNickname,
+                      gpsVerified: a.gpsVerified,
+                      timeLabel: Formatters.timeAgo(a.createdAt),
                     ),
                     const SizedBox(height: 6),
                     Text(a.content, style: const TextStyle(fontSize: 13, fontFamily: 'Pretendard')),

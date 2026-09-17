@@ -7,6 +7,7 @@ import '../../models/question.dart';
 import '../../services/api_service.dart';
 import '../../services/notification_service.dart';
 import '../../utils/formatters.dart';
+import '../../widgets/author_header.dart';
 
 /// 기능 12(MyPage) "내 Q&A" — 내가 쓴 질문 / 내가 단 답변, 두 탭.
 ///
@@ -388,8 +389,15 @@ class _MyQnaScreenState extends State<MyQnaScreen> with SingleTickerProviderStat
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(a.userNickname, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 2),
+          // qa_section.dart·global_qa_list.dart·현장 제보 카드와 같은 작성자 헤더
+          // (아바타-닉네임-현장인증 뱃지-시간)로 통일한다. 이 화면은 지난 이력을 보는
+          // 곳이라 시간 표기도 이 화면의 다른 카드들과 같은 reportRecency를 쓴다.
+          AuthorHeader(
+            nickname: a.userNickname,
+            gpsVerified: a.gpsVerified,
+            timeLabel: Formatters.reportRecency(a.createdAt),
+          ),
+          const SizedBox(height: 6),
           Text(a.content, style: const TextStyle(fontSize: 13)),
         ],
       ),
