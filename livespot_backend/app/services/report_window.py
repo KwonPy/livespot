@@ -96,6 +96,50 @@ async def latest_and_count(
     return latest, count or 0
 
 
+async def latest_cluster(
+    db: AsyncSession,
+    spot_content_id: str,
+    cutoff: datetime,
+    gap_hours: float,
+    max_n: int,
+) -> Tuple[List[Report], int]:
+    """"최근 제보 상세"로 쓸 묶음과 당일 총 건수를 함께 돌려준다.
+
+    최신 제보부터 거슬러 올라가며 바로 이전 제보와의 간격이 gap_hours를 넘는 지점에서
+    끊는다. 즉 반환 리스트는 "지금과 상황이 이어져 있다고 볼 수 있는" 연속 제보들이다.
+    간격이 한 번이라도 넘으면 그 뒤(더 과거) 제보는 값이 달라졌을 수 있으므로 포함하지
+    않는다 — 최신 1건만 남는 게 정상 동작이지, 버그가 아니다.
+
+    max_n은 조회 자체의 상한이다(방어용). 1시간 안에 max_n건 넘게 몰리는 비정상 상황이
+    아니면 gap_hours 쪽 판정이 먼저 걸린다.
+    """
+    rows = await db.scalars(
+        select(Report)
+        .where(Report.spot_content_id == spot_content_id, Report.created_at >= cutoff)
+        .order_by(Report.created_at.desc())
+        .limit(max_n)
+    )
+    ordered = rows.all()
+
+    count = await db.scalar(
+        select(func.count(Report.id)).where(
+            Report.spot_content_id == spot_content_id, Report.created_at >= cutoff
+        )
+    )
+
+    if not ordered:
+        return [], count or 0
+
+    gap = timedelta(hours=gap_hours)
+    cluster = [ordered[0]]
+    for prev, curr in zip(ordered, ordered[1:]):
+        if prev.created_at - curr.created_at > gap:
+            break
+        cluster.append(curr)
+
+    return cluster, count or 0
+
+
 async def recent_reports(
     db: AsyncSession, spot_content_id: str, cutoff: datetime, limit: int
 ) -> Sequence[Report]:

@@ -4,7 +4,6 @@ from typing import Optional
 
 class Settings(BaseSettings):
     TOUR_API_KEY: str
-    OPENWEATHER_API_KEY: Optional[str] = ""
     GEMINI_API_KEY: Optional[str] = ""
 
     # ── 카카오 로그인 (기능 9) ──
@@ -34,9 +33,6 @@ class Settings(BaseSettings):
     # 대가: 로그아웃은 클라이언트에서 토큰을 지우는 것일 뿐이고, 서버가 발급된 토큰을
     # 무효화하지 못한다. 유출 시 노출 창이 30일이다. 짧게 바꾸려면 여기 한 곳만 고친다.
     AUTH_TOKEN_TTL_DAYS: int = 30
-
-    # 지역 필터: "seoul" = 서울만 노출 (운영), "none" = 모든 지역 허용 (개발/테스트)
-    SERVICE_AREA_FILTER: str = "none"
 
     # 로컬 개발 기본값은 SQLite. 배포 시 .env에서 PostgreSQL DSN(postgresql+asyncpg://...)으로 덮어씀
     # (Phase 2+ 로그인·제보·Credit 등 사용자 데이터용. TourAPI 데이터는 캐싱하지 않고 실시간 호출로 사용)
@@ -104,6 +100,14 @@ class Settings(BaseSettings):
     # 프롬프트에 넣을 당일 제보 코멘트 건수 상한. 코멘트는 30자 제한이라 토큰 부담은 작지만,
     # 사용자 작성 텍스트가 프롬프트로 들어가는 경로이므로 건수를 명시적으로 제한한다.
     BRIEFING_COMMENT_LIMIT: int = 3
+
+    # 브리핑이 "최근 제보 상세"로 몇 건까지 묶어 종합할지의 상한과, 묶음을 끊는 간격(시간).
+    # 최신 제보부터 거슬러 올라가며 바로 이전 제보와의 간격이 이 시간을 넘으면 거기서 끊는다
+    # — 그래야 "3시간 전 제보 + 방금 제보"처럼 상황이 달라졌을 수 있는 값을 한 문장으로
+    # 뭉뚱그리지 않는다. CLUSTER_MAX는 이 묶음 조회 자체의 상한(방어용)이라 GAP_HOURS와
+    # 독립이다 — 1시간 안에 몰린 제보가 비정상적으로 많아도 프롬프트가 무한히 커지지 않게 한다.
+    BRIEFING_REPORT_CLUSTER_GAP_HOURS: float = 1.0
+    BRIEFING_REPORT_CLUSTER_MAX: int = 10
 
     # 개발/QA 전용: 켜면 요청 헤더 X-Test-User-Id로 test_user/seed_user_* 중 하나를 골라
     # 그 사용자로 동작하는 척 할 수 있다 (여러 사용자의 제보 상황을 한 기기에서 재현하기 위함).

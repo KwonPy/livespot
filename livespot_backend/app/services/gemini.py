@@ -18,6 +18,7 @@
 import asyncio
 import logging
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import List, Optional
@@ -53,6 +54,33 @@ _MAX_LEN = 400
 
 
 @dataclass
+class ReportSnapshot:
+    """제보 한 건의 브리핑 재료용 스냅샷. `latest_cluster`가 돌려주는 묶음의 원소."""
+
+    crowdedness_level: Optional[str]
+    waiting_time: Optional[str]
+    parking_status: Optional[str]
+    created_at: datetime  # naive UTC
+
+
+def _mode_latest(values: List[Optional[str]]) -> Optional[str]:
+    """최빈값. 동률이면 더 최신 값이 이긴다.
+
+    values는 항상 최신순으로 들어온다는 전제다. Counter는 등장 순서를 보존하지 않으므로
+    동률 처리는 원본 리스트를 다시 훑어 "최신순으로 먼저 나오는 최다득표 값"을 고른다.
+    """
+    present = [v for v in values if v]
+    if not present:
+        return None
+    counts = Counter(present)
+    best = max(counts.values())
+    for v in present:
+        if counts[v] == best:
+            return v
+    return present[0]
+
+
+@dataclass
 class BriefingMaterials:
     """브리핑 한 건을 만드는 데 쓰이는 재료 전부. 이 객체가 곧 캐시 서명의 입력이다."""
 
@@ -61,12 +89,35 @@ class BriefingMaterials:
     overview: Optional[str] = None
     weather: Optional[WeatherInfo] = None          # available=False면 날씨 항목을 통째로 뺀다
     congestion: Optional[CongestionInfo] = None    # level="unknown"이면 예측 없음으로 본다
-    report_crowdedness: Optional[str] = None       # 당일 최근 1건 (EASY/NORMAL/BUSY)
-    report_waiting_time: Optional[str] = None
-    report_parking_status: Optional[str] = None
-    last_report_at: Optional[datetime] = None      # naive UTC
+    # "최근 제보 상세"로 쓸 묶음. report_window.latest_cluster()가 채운다 — 최신 제보부터
+    # 거슬러 올라가며 바로 이전 제보와의 간격이 1시간을 넘는 지점에서 끊긴 연속 구간이다.
+    # 상황이 이어져 있다고 볼 수 있는 제보만 담기므로, 1건이면 예전과 동일하게 그 값 그대로,
+    # 여러 건이면 종합해서 쓴다(아래 프로퍼티들). 최신순으로 정렬돼 있어야 한다.
+    report_cluster: List[ReportSnapshot] = field(default_factory=list)
     report_count: int = 0                          # 당일(KST) 총 제보 건수
     comments: List[str] = field(default_factory=list)  # 당일 최근 코멘트 (최신순)
+
+    # ── 제보 클러스터 파생값 ──
+
+    @property
+    def cluster_size(self) -> int:
+        return len(self.report_cluster)
+
+    @property
+    def last_report_at(self) -> Optional[datetime]:
+        return self.report_cluster[0].created_at if self.report_cluster else None
+
+    @property
+    def report_crowdedness(self) -> Optional[str]:
+        return _mode_latest([r.crowdedness_level for r in self.report_cluster])
+
+    @property
+    def report_waiting_time(self) -> Optional[str]:
+        return _mode_latest([r.waiting_time for r in self.report_cluster])
+
+    @property
+    def report_parking_status(self) -> Optional[str]:
+        return _mode_latest([r.parking_status for r in self.report_cluster])
 
     # ── 재료 유무 판정 (based_on 필드와 Q3 분기의 단일 근거) ──
 
@@ -145,6 +196,7 @@ def build_signature(m: BriefingMaterials) -> str:
             m.report_crowdedness or "none",
             m.report_waiting_time or "none",
             m.report_parking_status or "none",
+            str(m.cluster_size),  # 클러스터 건수가 바뀌면(1건→2건 등) 종합 여부 문구가 바뀌므로 서명에도 반영
             str(len(m.comments)),
             temp_part,
             _time_slot(_now_kst().hour),
@@ -187,9 +239,19 @@ def build_prompt(m: BriefingMaterials) -> str:
             detail.append(f"대기 {_WAITING_TEXT.get(m.report_waiting_time, '정보 없음')}")
         if m.report_parking_status:
             detail.append(f"주차 {_PARKING_TEXT.get(m.report_parking_status, '정보 없음')}")
+        detail_text = ', '.join(detail) if detail else '내용 없음'
+
+        # 1건이면 예전과 동일한 "가장 최근 제보" 문구. 2건 이상(=1시간 이내 연속 제보)이면
+        # 여러 사람의 관찰을 종합한 값이라는 걸 모델에 명시한다 — 그래야 "한 사람이 그렇게
+        # 말했다"는 단일 관찰 뉘앙스로 쓰지 않는다.
+        if m.cluster_size <= 1:
+            recency_text = f"가장 최근 제보: {detail_text}"
+        else:
+            recency_text = (
+                f"최근 1시간 이내 연속 제보 {m.cluster_size}건을 종합한 현재 상황: {detail_text}"
+            )
         lines.append(
-            f"[현장 제보 — 오늘 실제 방문자가 올린 실측값] 오늘 총 {m.report_count}건. "
-            f"가장 최근 제보: {', '.join(detail) if detail else '내용 없음'}"
+            f"[현장 제보 — 오늘 실제 방문자가 올린 실측값] 오늘 총 {m.report_count}건. {recency_text}"
         )
 
     if m.comments:
@@ -276,7 +338,12 @@ def render_template(m: BriefingMaterials) -> str:
         if m.report_parking_status:
             detail.append(f"주차는 '{_PARKING_TEXT.get(m.report_parking_status, '정보 없음')}'")
         body = ", ".join(detail) if detail else "현장 상황이 공유되었습니다"
-        parts.append(f"오늘 {m.title}에 올라온 현장 제보는 {m.report_count}건이며, 가장 최근 제보 기준 {body}입니다.")
+        basis_text = (
+            "가장 최근 제보 기준"
+            if m.cluster_size <= 1
+            else f"최근 1시간 이내 연속 제보 {m.cluster_size}건 종합"
+        )
+        parts.append(f"오늘 {m.title}에 올라온 현장 제보는 {m.report_count}건이며, {basis_text} {body}입니다.")
     else:
         parts.append(f"{m.title}에 오늘 올라온 현장 제보는 아직 없습니다.")
 

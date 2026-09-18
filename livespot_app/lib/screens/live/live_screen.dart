@@ -294,14 +294,30 @@ class _LiveScreenState extends State<LiveScreen> with SingleTickerProviderStateM
     }
   }
 
-  // 이 탭에서는 대상 관광지가 미리 정해져 있지 않으므로, 현재 위치에서 가장 가까운
-  // 관광지를 찾아 그 관광지에 대한 제보 창을 연다.
+  // GPS 인증이 이미 끝나 있으면(_gpsMatchedSpot) 그 관광지가 대상이다 — 후보가 여럿이던
+  // 경우 최근 활동 이력이나 사용자가 직접 고른 결과일 수 있어서, 여기서 최단거리로
+  // 다시 검색하면 인증된 곳과 다른 곳이 뽑힐 수 있다(실제 버그 사례). 인증 전에는
+  // 대상이 정해져 있지 않으므로 그때만 현재 위치에서 가장 가까운 관광지를 찾는다.
   Future<void> _openReportModalForNearestSpot(BuildContext context) async {
     // 제보는 로그인 필수(Q5-C·AC2). 버튼은 숨기지 않고 눌리게 두되 여기서 유도 시트를
     // 띄운다 — 위치 조회(GPS 권한 팝업)보다 **먼저** 막는다. 순서가 반대면 결국 로그인
     // 시트를 보게 될 사용자에게 GPS 권한부터 요구하게 된다.
     if (!await ensureLoggedIn(context, actionLabel: '현장 제보')) return;
     if (!context.mounted) return;
+
+    if (_gpsMatchStatus == _GpsMatchStatus.matched && _gpsMatchedSpot != null) {
+      final matched = _gpsMatchedSpot!;
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (context) => QuickReportModal(spotName: matched.title, spotContentId: matched.contentId),
+      );
+      return;
+    }
+
     try {
       final position = await _locationService.getCurrentPosition();
       final nearby = await _apiService.fetchNearbySpots(position.latitude, position.longitude, radius: 1000);

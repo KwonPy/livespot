@@ -22,6 +22,7 @@ from app.services import report_window
 from app.services.gemini import (
     BriefingMaterials,
     GeminiBriefingService,
+    ReportSnapshot,
     build_signature,
     render_no_material,
     render_template,
@@ -100,13 +101,8 @@ def parse_spot_intro(item: dict, content_type_id: str) -> SpotIntro:
 
 
 def _filter_allowed_items(items: list) -> list:
-    """지역/카테고리 화이트리스트 적용 (nearby, keyword 검색 공통).
-    운영 지역 밖 · 음식점/숙박 등 비관광 카테고리 · 좌표 결측 항목을 제외한다."""
-    from app.config import settings
-
-    if settings.SERVICE_AREA_FILTER == "seoul":
-        items = [item for item in items if "서울" in item.get("addr1", "")]
-
+    """카테고리 화이트리스트 적용 (nearby, keyword 검색 공통).
+    음식점/숙박 등 비관광 카테고리 · 좌표 결측 항목을 제외한다. 지역 제한 없음(전국 대상)."""
     ALLOWED_TYPES = {"12", "14", "15", "28", "38"}
     items = [item for item in items if str(item.get("contenttypeid", "")) in ALLOWED_TYPES]
 
@@ -343,12 +339,16 @@ async def spot_briefing(content_id: str, db: AsyncSession = Depends(get_db)):
     # 안에서 두 블록이 서로 다른 "오늘"을 말하지 않게 하기 위함이다.
     cutoff = report_window.today_cutoff_utc()
     try:
-        latest, report_count = await report_window.latest_and_count(db, content_id, cutoff)
+        cluster, report_count = await report_window.latest_cluster(
+            db, content_id, cutoff,
+            gap_hours=settings.BRIEFING_REPORT_CLUSTER_GAP_HOURS,
+            max_n=settings.BRIEFING_REPORT_CLUSTER_MAX,
+        )
         comments = await report_window.recent_comments(
             db, content_id, cutoff, settings.BRIEFING_COMMENT_LIMIT
         )
     except Exception:
-        latest, report_count, comments = None, 0, []
+        cluster, report_count, comments = [], 0, []
 
     materials = BriefingMaterials(
         content_id=content_id,
@@ -356,10 +356,15 @@ async def spot_briefing(content_id: str, db: AsyncSession = Depends(get_db)):
         overview=item.get("overview"),
         weather=weather,
         congestion=congestion,
-        report_crowdedness=latest.crowdedness_level if latest else None,
-        report_waiting_time=latest.waiting_time if latest else None,
-        report_parking_status=latest.parking_status if latest else None,
-        last_report_at=latest.created_at if latest else None,
+        report_cluster=[
+            ReportSnapshot(
+                crowdedness_level=r.crowdedness_level,
+                waiting_time=r.waiting_time,
+                parking_status=r.parking_status,
+                created_at=r.created_at,
+            )
+            for r in cluster
+        ],
         report_count=report_count,
         comments=comments,
     )

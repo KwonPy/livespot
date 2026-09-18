@@ -214,6 +214,11 @@ class _QaSectionState extends State<QaSection> {
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
           onTap: () => _toggleExpand(q.id),
+          // 펼치기/접기 탭마다 물결(ripple) 효과가 카드 전체에서 반짝이는 게 거슬린다는
+          // 사용자 지침(2026-09-18)으로 시각 효과를 껐다. 탭 동작 자체는 그대로다.
+          splashFactory: NoSplash.splashFactory,
+          splashColor: Colors.transparent,
+          highlightColor: Colors.transparent,
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Column(
