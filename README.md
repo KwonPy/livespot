@@ -140,4 +140,4 @@ Railway에 백엔드(FastAPI + Postgres)와 프론트(Flutter 웹, nginx)를 각
 | [`function.md`](function.md) | 설계서 — 전체 현황표, 남은 기능 설계, DB·API 목록 |
 | [`run.md`](run.md) | 실행 명령 |
 
-정책이 충돌하면 **작업일지 9절(의사결정)이 설계서보다 우선**한다.
+
