@@ -118,26 +118,5 @@ Railway에 백엔드(FastAPI + Postgres)와 프론트(Flutter 웹, nginx)를 각
 
 **서비스 지역은 전국으로 확정됐다** — 관광지 조회·핫스팟·제보에 지역 제한이 없다. 다만 방문 집중률 **예측** 폴백(핫스팟 2순위 채움)만 API 쿼터 절약을 위해 서울 25개 시군구로 한정한다([018](docs/worklogs/018-congestion-quota-fix.md)). 실제 제보·질문·AI 브리핑은 전국 어디서나 동작한다.
 
-**Railway 환경변수(`KAKAO_APP_ID`·`JWT_SECRET`)도 반영 완료, 커스텀 도메인도 연결 완료** — 더 이상 임시 `*.up.railway.app` 주소가 아니다.
-
----
-
-## ⚠️ 시연 전 확인
-
-| 항목 | 내용 |
-|---|---|
-| **노트북에서는 제보가 안 된다** | 노트북은 GPS 칩이 없어 WiFi/IP로 위치를 추정한다. 오차가 100m~50km라 250m 판정을 통과할 수 없다. **휴대폰 브라우저로 접속**하거나 `.env`에 `DEMO_BYPASS_GPS=True`를 켠다 |
-| `DEMO_BYPASS_GPS` | GPS 거리 판정 우회. 배포 시 **반드시 False** |
-| `TEST_MODE` | 헤더로 작성자를 바꿀 수 있다. 배포 시 **반드시 False** — 켜져 있으면 누구나 다른 사용자 행세를 할 수 있다 |
-
----
-
-## 문서
-
-| 문서 | 내용 |
-|---|---|
-| [`docs/worklogs/`](docs/worklogs/) | **기능별 작업일지** — 무엇을 왜 만들었고 어떤 문제를 어떻게 풀었는지 |
-| [`function.md`](function.md) | 설계서 — 전체 현황표, 남은 기능 설계, DB·API 목록 |
-| [`run.md`](run.md) | 실행 명령 |
 
 
