@@ -7,6 +7,8 @@
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy_2.0-D71F00)](https://www.sqlalchemy.org)
 [![TourAPI](https://img.shields.io/badge/한국관광공사_TourAPI-0B7285)](https://www.data.go.kr)
 
+![LiveSpot 아키텍처](docs/portfolio/livespot_architecture.png)
+
 ---
 
 ## 무엇을 하는 앱인가
@@ -79,44 +81,7 @@ livespot/
 
 ## 시작하기
 
-### 필요한 것
-- Python 3.11+ / Flutter 3.x
-- API 키: **TourAPI**(필수) · **MapTiler**(필수 — 없으면 지도가 안 뜬다. `web/index.html`의 `MAPTILER_CONFIG`에 개발용 키가 이미 채워져 있음) · **Gemini**(선택 — 없으면 AI 브리핑이 템플릿 문구로 자동 폴백) — 날씨(Open-Meteo)는 키 불필요
+### 바로 써보기
+👉 **https://livespot.kr**
 
-### 백엔드
-```powershell
-cd livespot_backend
-.\venv\Scripts\Activate.ps1
-uvicorn app.main:app --reload --port 8000
-```
-→ API 문서: http://127.0.0.1:8000/docs
-
-### 앱
-```powershell
-cd livespot_app
-flutter run -d chrome --web-port=8080
-```
-서버 주소는 기본으로 로컬(`http://127.0.0.1:8000/api`)을 쓴다. 배포 빌드에서 원격 서버로 붙이려면 `--dart-define=API_BASE_URL=https://<백엔드-도메인>/api`를 붙여 빌드한다.
-
-### 데모용 시드 데이터
-```powershell
-cd livespot_backend
-venv/Scripts/python.exe scripts/seed_dev_data.py
-```
-제보 시각을 실행 시점 기준으로 다시 맞춘다. **시연 직전에 한 번 실행할 것** — 안 그러면 제보가 "최근 2시간" 창 밖으로 밀려나 핫스팟이 빈다.
-
----
-
-## 배포
-
-Railway에 백엔드(FastAPI + Postgres)와 프론트(Flutter 웹, nginx)를 각각 별도 서비스로 올린다. 자세한 과정과 트러블슈팅은 [`docs/worklogs/012-railway-deploy.md`](docs/worklogs/012-railway-deploy.md) 참고.
-
-- `livespot_backend/Dockerfile`: Railway가 주입하는 `PORT`로 리슨하고, 컨테이너 시작 시 `alembic upgrade head`를 먼저 실행한 뒤 서버를 켠다.
-- `livespot_backend/app/config.py`: Railway Postgres 플러그인이 주는 `postgres://` URL을 SQLAlchemy 비동기 드라이버가 요구하는 `postgresql+asyncpg://`로 자동 보정한다.
-- `livespot_app/Dockerfile`, `livespot_app/nginx.conf`: Flutter 웹 빌드 산출물을 nginx로 서빙한다.
-- 로컬 SQLite는 개발용, 배포는 Postgres — 서버를 새로 올릴 때마다 로그인·제보·Credit 데이터가 날아가면 안 되기 때문.
-
-**서비스 지역은 전국으로 확정됐다** — 관광지 조회·핫스팟·제보에 지역 제한이 없다. 다만 방문 집중률 **예측** 폴백(핫스팟 2순위 채움)만 API 쿼터 절약을 위해 서울 25개 시군구로 한정한다([018](docs/worklogs/018-congestion-quota-fix.md)). 실제 제보·질문·AI 브리핑은 전국 어디서나 동작한다.
-
-
-
+설치할 것 없이 브라우저로 접속하면 된다. 제보·답변은 GPS 판정이 있어서 **휴대폰 브라우저**로 관광지 반경 250m 안에서 접속해야 쓸 수 있다(노트북은 위치 오차 때문에 통과하지 못한다). 제보와 답변을 쓰려면 카카오로 로그인하고 닉네임을 설정해야 한다.
